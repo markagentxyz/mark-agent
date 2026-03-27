@@ -1,6 +1,6 @@
 import { TwitterApi } from 'twitter-api-v2';
 import cron from 'node-cron';
-import { generateContent } from '../core/brain.js';
+import { generateContent, chat } from '../core/brain.js';
 import { getDb } from '../database/init.js';
 import { updateBioMilestone } from './profile.js';
 import dotenv from 'dotenv';
@@ -18,9 +18,9 @@ const client = new TwitterApi({
 });
 
 const rwClient = client.readWrite;
-let lastMentionId = null;
+const processedDmIds = new Set();
 
-console.log('[TWITTER] Agent started');
+console.log('[TWITTER] Agent started (posts + reactive DMs only)');
 
 async function postTweet(content) {
   try {
@@ -38,6 +38,8 @@ async function postTweet(content) {
     return null;
   }
 }
+
+// === 3x DAILY AUTO-POSTS (cheap write operations) ===
 
 // Morning post: 9am UTC - Marketing insight
 cron.schedule('0 9 * * *', async () => {
@@ -73,42 +75,48 @@ cron.schedule('0 19 * * *', async () => {
   if (content) await postTweet(content.substring(0, 280));
 });
 
-// Monitor mentions every 15 minutes
+// === REACTIVE DMs — respond when someone contacts MARK first ===
+
 cron.schedule('*/15 * * * *', async () => {
   try {
-    const params = { 'tweet.fields': ['author_id', 'text', 'created_at'] };
-    if (lastMentionId) params.since_id = lastMentionId;
+    const dms = await client.v2.listDmEvents({ event_types: 'MessageCreate', max_results: 10 });
+    if (!dms.data?.data) return;
 
-    const mentions = await client.v2.userMentionTimeline(
-      (await client.v2.me()).data.id,
-      params
-    );
+    for (const dm of dms.data.data) {
+      // Skip already processed
+      if (processedDmIds.has(dm.id)) continue;
+      processedDmIds.add(dm.id);
 
-    if (mentions.data?.data) {
-      for (const mention of mentions.data.data) {
-        lastMentionId = mention.id;
+      // Skip DMs sent by MARK itself
+      const myId = (await client.v2.me()).data.id;
+      if (dm.sender_id === myId) continue;
 
-        const response = await generateContent(
-          `Someone tweeted this mentioning you: "${mention.text}". Write a reply tweet (max 280 chars). Be helpful but brief. If they're asking about services, point them to mark-agent.xyz.`
-        );
+      const text = dm.text || '';
+      if (!text.trim()) continue;
 
-        if (response) {
-          await rwClient.v2.reply(response.substring(0, 280), mention.id);
-          console.log('[TWITTER] Replied to mention:', mention.id);
-        }
+      console.log(`[TWITTER] DM from ${dm.sender_id}: ${text.substring(0, 50)}...`);
+
+      // Respond via brain
+      const response = await chat(text, {
+        channel: 'twitter_dm',
+        userId: dm.sender_id,
+        username: dm.sender_id,
+      });
+
+      // Send DM reply
+      try {
+        await client.v2.sendDmInConversation(dm.dm_conversation_id, { text: response.substring(0, 10000) });
+        console.log(`[TWITTER] DM reply sent to ${dm.sender_id}`);
+      } catch (dmError) {
+        console.error('[TWITTER] DM reply error:', dmError.message);
       }
     }
-  } catch (error) {
-    console.error('[TWITTER] Mention check error:', error.message);
-  }
-});
 
-// Monitor DMs every 15 minutes
-cron.schedule('*/15 * * * *', async () => {
-  try {
-    const dms = await client.v2.listDmEvents({ event_types: 'MessageCreate', max_results: 5 });
-    if (dms.data?.data) {
-      console.log('[TWITTER] DM check: found', dms.data.data.length, 'recent messages');
+    // Keep processedDmIds from growing forever
+    if (processedDmIds.size > 500) {
+      const arr = [...processedDmIds];
+      processedDmIds.clear();
+      arr.slice(-200).forEach(id => processedDmIds.add(id));
     }
   } catch (error) {
     if (!error.message.includes('403')) {
@@ -117,7 +125,8 @@ cron.schedule('*/15 * * * *', async () => {
   }
 });
 
-// Track metrics and update bio on milestones - daily at midnight
+// === DAILY METRICS (single cheap read) ===
+
 cron.schedule('0 0 * * *', async () => {
   try {
     const me = await client.v2.me({ 'user.fields': ['public_metrics'] });
@@ -131,7 +140,6 @@ cron.schedule('0 0 * * *', async () => {
       db.prepare('INSERT INTO metrics (date, twitter_followers, active_clients, treasury_balance) VALUES (date(?), ?, ?, ?)')
         .run(new Date().toISOString(), followers, activeClients.count, treasuryBalance.balance);
 
-      // Update bio with milestones
       const milestones = [];
       if (followers >= 1000) milestones.push(`${(followers / 1000).toFixed(1)}K followers`);
       else if (followers > 0) milestones.push(`${followers} followers`);

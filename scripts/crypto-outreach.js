@@ -1,19 +1,10 @@
 import WebSocket from 'ws';
-import { TwitterApi } from 'twitter-api-v2';
-import { generateContent } from '../core/brain.js';
 import { getDb } from '../database/init.js';
 import cron from 'node-cron';
 import dotenv from 'dotenv';
 dotenv.config({ path: new URL('../.env', import.meta.url).pathname });
 
-const twitterClient = new TwitterApi({
-  appKey: process.env.TWITTER_CONSUMER_KEY,
-  appSecret: process.env.TWITTER_CONSUMER_SECRET,
-  accessToken: process.env.TWITTER_ACCESS_TOKEN,
-  accessSecret: process.env.TWITTER_ACCESS_TOKEN_SECRET,
-}).readWrite;
-
-console.log('[OUTREACH] Crypto outreach agent started');
+console.log('[OUTREACH] Crypto outreach agent started (PumpPortal detection only, no X API)');
 
 let wsReconnectTimeout = 5000;
 
@@ -24,7 +15,6 @@ function connectPumpPortal() {
     ws.on('open', () => {
       console.log('[OUTREACH] Connected to PumpPortal');
       wsReconnectTimeout = 5000;
-      // Subscribe to new token events
       ws.send(JSON.stringify({ method: 'subscribeNewToken' }));
     });
 
@@ -34,7 +24,7 @@ function connectPumpPortal() {
         if (event.txType === 'create' || event.mint) {
           await evaluateProject(event);
         }
-      } catch (error) {
+      } catch {
         // Skip parse errors for non-JSON messages
       }
     });
@@ -61,7 +51,7 @@ async function evaluateProject(event) {
 
     if (!tokenAddress) return;
 
-    // Check if already reached out
+    // Check if already tracked
     const db = getDb();
     try {
       const existing = db.prepare('SELECT id FROM outreach WHERE token_address = ?').get(tokenAddress);
@@ -76,34 +66,35 @@ async function evaluateProject(event) {
 
     console.log(`[OUTREACH] High-score project found: ${name} (${score}/10)`);
 
-    // Store outreach attempt
+    // Store in database for review — no Twitter outreach, just detection
     const db2 = getDb();
     try {
       db2.prepare(
-        'INSERT INTO outreach (project_name, token_address, score, status) VALUES (?, ?, ?, ?)'
-      ).run(name, tokenAddress, score, 'evaluating');
+        'INSERT INTO outreach (project_name, token_address, score, status, contact) VALUES (?, ?, ?, ?, ?)'
+      ).run(
+        name,
+        tokenAddress,
+        score,
+        'detected',
+        event.twitter || event.website || ''
+      );
     } finally {
       db2.close();
     }
-
-    // Try to find and DM the dev on Twitter
-    await attemptOutreach(name, tokenAddress, score);
   } catch (error) {
     console.error('[OUTREACH] Evaluation error:', error.message);
   }
 }
 
 function scoreProject(event) {
-  let score = 5; // Base score
+  let score = 5;
 
-  // Name originality (basic heuristic)
   const name = (event.name || '').toLowerCase();
   const genericNames = ['moon', 'doge', 'pepe', 'inu', 'shib', 'elon', 'trump'];
   const isGeneric = genericNames.some(g => name.includes(g));
   if (!isGeneric && name.length > 3) score += 2;
   if (isGeneric) score -= 1;
 
-  // Has a website or social
   if (event.uri || event.website) score += 1;
   if (event.twitter) score += 1;
   if (event.telegram) score += 1;
@@ -111,70 +102,22 @@ function scoreProject(event) {
   return Math.min(Math.max(score, 1), 10);
 }
 
-async function attemptOutreach(name, tokenAddress, score) {
-  try {
-    // Search for the project on Twitter
-    const searchResults = await twitterClient.v2.search(`${name} token OR launch OR mint`, {
-      max_results: 10,
-      'tweet.fields': ['author_id', 'public_metrics'],
-    });
-
-    if (!searchResults.data?.data) return;
-
-    for (const tweet of searchResults.data.data) {
-      try {
-        // Check follower count
-        const user = await twitterClient.v2.user(tweet.author_id, {
-          'user.fields': ['public_metrics'],
-        });
-
-        const followers = user.data?.public_metrics?.followers_count || 0;
-        if (followers >= 1000) continue; // Skip established accounts
-
-        // Generate personalized outreach message
-        const message = await generateContent(
-          `Write a short, direct DM (max 500 chars) to a crypto project dev who just launched "${name}" on Solana. Their Twitter has ${followers} followers. Offer MARK's marketing services. Be specific about what you can do for them. Mention mark-agent.xyz. Don't be salesy — be genuinely helpful. Score: ${score}/10.`
-        );
-
-        if (!message) continue;
-
-        // Store the outreach
-        const db = getDb();
-        try {
-          db.prepare(
-            'UPDATE outreach SET contact = ?, message_sent = ?, status = ? WHERE token_address = ?'
-          ).run(tweet.author_id, message, 'contacted', tokenAddress);
-        } finally {
-          db.close();
-        }
-
-        console.log(`[OUTREACH] Reached out to dev of ${name} (${followers} followers)`);
-        break; // Only contact one per project
-      } catch (error) {
-        // Skip individual tweet processing errors
-      }
-    }
-  } catch (error) {
-    console.error('[OUTREACH] Twitter search error:', error.message);
-  }
-}
-
 // Connect to PumpPortal
 connectPumpPortal();
 
-// Periodic review of outreach results
+// Periodic stats review
 cron.schedule('0 */6 * * *', () => {
   const db = getDb();
   try {
     const stats = db.prepare(`
       SELECT
         COUNT(*) as total,
-        SUM(CASE WHEN status = 'contacted' THEN 1 ELSE 0 END) as contacted,
-        SUM(CASE WHEN status = 'responded' THEN 1 ELSE 0 END) as responded,
-        SUM(CASE WHEN status = 'converted' THEN 1 ELSE 0 END) as converted
+        SUM(CASE WHEN score >= 8 THEN 1 ELSE 0 END) as high_quality,
+        SUM(CASE WHEN score >= 9 THEN 1 ELSE 0 END) as top_tier
       FROM outreach
+      WHERE timestamp > datetime('now', '-24 hours')
     `).get();
-    console.log('[OUTREACH] Stats:', stats);
+    console.log('[OUTREACH] Last 24h:', stats);
   } finally {
     db.close();
   }

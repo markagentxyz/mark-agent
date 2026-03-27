@@ -2,6 +2,8 @@ import TelegramBot from 'node-telegram-bot-api';
 import { chat } from '../core/brain.js';
 import { formatPriceList } from '../core/pricing.js';
 import { getDb } from '../database/init.js';
+import { isOwner } from '../core/auth.js';
+import { launchToken } from '../core/launcher.js';
 import dotenv from 'dotenv';
 dotenv.config({ path: new URL('../.env', import.meta.url).pathname });
 
@@ -10,6 +12,7 @@ const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
 console.log('[TELEGRAM] Bot started');
 
 const briefSessions = new Map();
+const launchSessions = new Map();
 
 bot.onText(/\/start/, async (msg) => {
   const welcome = `Welcome. I'm MARK — an AI marketing agent running my own company.
@@ -96,6 +99,55 @@ bot.onText(/\/status/, async (msg) => {
   }
 });
 
+// ============================================================
+// OWNER-ONLY: Token launch on bags.fm
+// ============================================================
+bot.onText(/\/launch/, async (msg) => {
+  const userId = String(msg.from.id);
+
+  if (!isOwner(userId)) {
+    await bot.sendMessage(msg.chat.id, "I'm MARK. I do marketing. This command is not available.");
+    return;
+  }
+
+  launchSessions.set(msg.chat.id, { step: 'name', userId });
+  await bot.sendMessage(msg.chat.id,
+    `🚀 *Token Launch — bags.fm*\n\n` +
+    `No dev wallet. Fees → treasury.\n\n` +
+    `Step 1/5: Send the *token name*`,
+    { parse_mode: 'Markdown' }
+  );
+});
+
+// Owner-only: admin panel
+bot.onText(/\/admin/, async (msg) => {
+  const userId = String(msg.from.id);
+  if (!isOwner(userId)) return;
+
+  const db = getDb();
+  try {
+    const clients = db.prepare("SELECT COUNT(*) as c FROM clients").get();
+    const active = db.prepare("SELECT COUNT(*) as c FROM clients WHERE status = 'active'").get();
+    const convos = db.prepare("SELECT COUNT(*) as c FROM conversations").get();
+    const treasury = db.prepare("SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE -amount END), 0) as b FROM treasury").get();
+    const launches = db.prepare("SELECT COUNT(*) as c FROM treasury WHERE type = 'token_launch'").get();
+
+    await bot.sendMessage(msg.chat.id,
+      `📊 *MARK Admin Panel*\n\n` +
+      `Clients: ${clients.c} (${active.c} active)\n` +
+      `Conversations: ${convos.c}\n` +
+      `Treasury: €${treasury.b.toFixed(2)}\n` +
+      `Token launches: ${launches.c}\n\n` +
+      `Commands:\n` +
+      `/launch — Launch token on bags.fm\n` +
+      `/admin — This panel`,
+      { parse_mode: 'Markdown' }
+    );
+  } finally {
+    db.close();
+  }
+});
+
 // Handle all other messages
 bot.on('message', async (msg) => {
   if (msg.text?.startsWith('/')) return;
@@ -105,11 +157,97 @@ bot.on('message', async (msg) => {
   const username = msg.from.username || msg.from.first_name || '';
 
   try {
-    // Check if this is a brief submission
+    // Handle launch flow (owner only)
+    if (launchSessions.has(chatId)) {
+      const session = launchSessions.get(chatId);
+
+      // Verify still owner
+      if (session.userId !== userId || !isOwner(userId)) {
+        launchSessions.delete(chatId);
+        return;
+      }
+
+      const text = msg.text.trim();
+
+      if (session.step === 'name') {
+        session.name = text;
+        session.step = 'symbol';
+        await bot.sendMessage(chatId, `Name: *${text}*\n\nStep 2/5: Send the *ticker symbol* (e.g. MARK)`, { parse_mode: 'Markdown' });
+        return;
+      }
+
+      if (session.step === 'symbol') {
+        session.symbol = text.toUpperCase().replace(/\$/g, '');
+        session.step = 'description';
+        await bot.sendMessage(chatId, `Ticker: *$${session.symbol}*\n\nStep 3/5: Send a *description*`, { parse_mode: 'Markdown' });
+        return;
+      }
+
+      if (session.step === 'description') {
+        session.description = text;
+        session.step = 'image';
+        await bot.sendMessage(chatId, `Step 4/5: Send the *image URL* (or type "skip")`, { parse_mode: 'Markdown' });
+        return;
+      }
+
+      if (session.step === 'image') {
+        session.imageUrl = text.toLowerCase() === 'skip' ? '' : text;
+        session.step = 'confirm';
+
+        await bot.sendMessage(chatId,
+          `📋 *Launch Summary*\n\n` +
+          `Name: ${session.name}\n` +
+          `Ticker: $${session.symbol}\n` +
+          `Description: ${session.description}\n` +
+          `Image: ${session.imageUrl || 'none'}\n` +
+          `Platform: bags.fm\n` +
+          `Dev wallet: NONE\n` +
+          `Fees: → treasury\n` +
+          `Initial buy: 0 SOL\n\n` +
+          `Type *CONFIRM* to launch or *cancel* to abort.`,
+          { parse_mode: 'Markdown' }
+        );
+        return;
+      }
+
+      if (session.step === 'confirm') {
+        if (text.toUpperCase() === 'CONFIRM') {
+          launchSessions.delete(chatId);
+          await bot.sendMessage(chatId, '🚀 Launching...');
+
+          const result = await launchToken({
+            name: session.name,
+            symbol: session.symbol,
+            description: session.description,
+            imageUrl: session.imageUrl,
+            initialBuySOL: 0,
+          });
+
+          if (result.success) {
+            await bot.sendMessage(chatId,
+              `✅ *Token Launched!*\n\n` +
+              `Name: ${result.name}\n` +
+              `Ticker: $${result.symbol}\n` +
+              `Address: \`${result.tokenAddress}\`\n` +
+              `Explorer: ${result.explorer}\n` +
+              `Bags: ${result.bags}`,
+              { parse_mode: 'Markdown' }
+            );
+          } else {
+            await bot.sendMessage(chatId, `❌ Launch failed: ${result.error}`);
+          }
+        } else {
+          launchSessions.delete(chatId);
+          await bot.sendMessage(chatId, 'Launch cancelled.');
+        }
+        return;
+      }
+    }
+
+    // Handle brief submission
     if (briefSessions.has(chatId)) {
       briefSessions.delete(chatId);
 
-      // Save as client
       const db = getDb();
       try {
         db.prepare(
@@ -130,7 +268,7 @@ bot.on('message', async (msg) => {
       return;
     }
 
-    // Normal conversation
+    // Normal conversation — routed through anti-larp hardened brain
     const response = await chat(msg.text, { channel: 'telegram', userId, username });
     await bot.sendMessage(chatId, response);
   } catch (error) {
