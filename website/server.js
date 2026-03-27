@@ -1,17 +1,21 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import Stripe from 'stripe';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { chat } from '../core/brain.js';
 import { getPrices, getPricingHistory } from '../core/pricing.js';
 import { getDb } from '../database/init.js';
+import { extractTxSignature, verifyPayment } from '../core/credits.js';
 import dotenv from 'dotenv';
 dotenv.config({ path: new URL('../.env', import.meta.url).pathname });
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3032;
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+const DOMAIN = process.env.DOMAIN || 'mark-agent.xyz';
 
 app.use(cors());
 app.use(helmet({ contentSecurityPolicy: false }));
@@ -19,7 +23,7 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(join(__dirname, 'public')));
 
-// API: Public config (Stripe publishable key + SOL wallet — safe to expose)
+// API: Public config
 app.get('/api/config', (req, res) => {
   res.json({
     stripePublishableKey: process.env.STRIPE_PUBLISHABLE_KEY || '',
@@ -46,19 +50,107 @@ app.post('/api/chat', async (req, res) => {
 
 // API: Prices
 app.get('/api/prices', (req, res) => {
+  try { res.json(getPrices()); }
+  catch { res.status(500).json({ error: 'Could not fetch prices' }); }
+});
+
+// API: Pricing history
+app.get('/api/pricing-history', (req, res) => {
+  try { res.json(getPricingHistory(30)); }
+  catch { res.status(500).json({ error: 'Could not fetch pricing history' }); }
+});
+
+// API: Stripe Checkout Session
+app.post('/api/checkout/stripe', async (req, res) => {
   try {
-    res.json(getPrices());
+    const { service, email, name } = req.body;
+    if (!service) return res.status(400).json({ error: 'Service required' });
+
+    const db = getDb();
+    let priceData;
+    try {
+      priceData = db.prepare('SELECT * FROM prices WHERE service = ?').get(service);
+    } finally {
+      db.close();
+    }
+
+    if (!priceData || priceData.currency !== 'EUR') {
+      return res.status(400).json({ error: 'This service requires SOL payment' });
+    }
+
+    const serviceName = service.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ['card'],
+      line_items: [{
+        price_data: {
+          currency: 'eur',
+          product_data: {
+            name: `MARK — ${serviceName}`,
+            description: `Marketing service by MARK (mark-agent.xyz)`,
+          },
+          unit_amount: Math.round(priceData.price * 100),
+        },
+        quantity: 1,
+      }],
+      mode: 'payment',
+      customer_email: email || undefined,
+      metadata: { service, client_name: name || '' },
+      success_url: `https://${DOMAIN}/#checkout-success`,
+      cancel_url: `https://${DOMAIN}/#checkout-cancel`,
+    });
+
+    // Save as client inquiry
+    const db2 = getDb();
+    try {
+      db2.prepare('INSERT INTO clients (name, contact, channel, project_brief, status, price, currency) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run(name || 'Web Checkout', email || '', 'web', `Stripe checkout: ${serviceName}`, 'inquiry', priceData.price, 'EUR');
+    } finally {
+      db2.close();
+    }
+
+    res.json({ url: session.url });
   } catch (error) {
-    res.status(500).json({ error: 'Could not fetch prices' });
+    console.error('[WEB] Stripe checkout error:', error.message);
+    res.status(500).json({ error: 'Could not create checkout session' });
   }
 });
 
-// API: Pricing decision history
-app.get('/api/pricing-history', (req, res) => {
+// API: Verify SOL payment
+app.post('/api/checkout/verify-sol', async (req, res) => {
   try {
-    res.json(getPricingHistory(30));
+    const { txSignature, service, email, name } = req.body;
+
+    const sig = extractTxSignature(txSignature || '');
+    if (!sig) return res.status(400).json({ error: 'Invalid transaction signature or URL' });
+
+    const result = await verifyPayment(sig);
+    if (!result.verified) {
+      return res.json({ verified: false, error: result.error });
+    }
+
+    // Log payment in treasury
+    const db = getDb();
+    try {
+      db.prepare("INSERT INTO treasury (type, amount, currency, description) VALUES ('income', ?, 'SOL', ?)")
+        .run(result.amount, `Web payment: ${service || 'general'} from ${name || email || 'anonymous'}`);
+
+      // Record in payments table
+      db.prepare('INSERT OR IGNORE INTO payments (chat_id, user_id, tx_signature, amount_sol, credits_added, verified) VALUES (?, ?, ?, ?, 0, 1)')
+        .run('web', email || 'web', sig, result.amount);
+
+      // Save as client
+      const serviceName = (service || 'general').replace(/_/g, ' ');
+      db.prepare('INSERT INTO clients (name, contact, channel, project_brief, status, price, currency, paid) VALUES (?, ?, ?, ?, ?, ?, ?, 1)')
+        .run(name || 'Web Payment', email || '', 'web', `SOL payment: ${serviceName}`, 'active', result.amount, 'SOL');
+    } finally {
+      db.close();
+    }
+
+    res.json({ verified: true, amount: result.amount });
   } catch (error) {
-    res.status(500).json({ error: 'Could not fetch pricing history' });
+    console.error('[WEB] SOL verify error:', error.message);
+    res.status(500).json({ error: 'Verification failed' });
   }
 });
 
@@ -110,7 +202,7 @@ app.get('/api/stats', (req, res) => {
     } finally {
       db.close();
     }
-  } catch (error) {
+  } catch {
     res.status(500).json({ error: 'Could not fetch stats' });
   }
 });

@@ -7,199 +7,44 @@
   <meta name="description" content="MARK is an autonomous AI marketing agent helping crypto projects and local businesses grow.">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>◆</text></svg>">
   <style>
-    :root {
-      --bg: #0a0a0a;
-      --surface: #111111;
-      --border: #1a1a1a;
-      --text: #e0e0e0;
-      --muted: #666;
-      --accent: #00ff88;
-      --accent-dim: #00cc6a;
-      --stripe: #635bff;
-      --sol: #9945ff;
-    }
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.6;
-      min-height: 100vh;
-    }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-
-    nav {
-      position: fixed; top: 0; width: 100%; z-index: 100;
-      background: rgba(10,10,10,0.95);
-      backdrop-filter: blur(10px);
-      border-bottom: 1px solid var(--border);
-      padding: 1rem 2rem;
-      display: flex; justify-content: space-between; align-items: center;
-    }
-    .logo { font-size: 1.2rem; font-weight: bold; color: var(--accent); }
-    .nav-links { display: flex; gap: 1.5rem; flex-wrap: wrap; }
-    .nav-links a { color: var(--muted); font-size: 0.85rem; cursor: pointer; }
-    .nav-links a:hover { color: var(--accent); text-decoration: none; }
-
-    main { padding-top: 5rem; max-width: 900px; margin: 0 auto; padding-left: 2rem; padding-right: 2rem; }
-
-    .hero { padding: 4rem 0; border-bottom: 1px solid var(--border); }
-    .hero h1 { font-size: 2.5rem; margin-bottom: 1rem; }
-    .hero h1 span { color: var(--accent); }
-    .hero p { color: var(--muted); font-size: 1rem; max-width: 600px; margin-bottom: 1.5rem; }
-    .status-badge {
-      display: inline-block; padding: 0.3rem 0.8rem;
-      background: rgba(0,255,136,0.1); border: 1px solid var(--accent);
-      border-radius: 2px; font-size: 0.75rem; color: var(--accent);
-    }
-
-    section { padding: 3rem 0; border-bottom: 1px solid var(--border); }
-    section h2 { font-size: 1.3rem; margin-bottom: 1.5rem; color: var(--accent); }
-
-    .service-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
-    .service-card {
-      background: var(--surface); border: 1px solid var(--border);
-      padding: 1.5rem; transition: border-color 0.2s;
-    }
-    .service-card:hover { border-color: var(--accent); }
-    .service-card h3 { font-size: 0.95rem; margin-bottom: 0.5rem; }
-    .service-card p { color: var(--muted); font-size: 0.8rem; }
-    .service-card .price { color: var(--accent); font-size: 1.1rem; margin-top: 0.8rem; font-weight: bold; }
-    .service-card .pay-buttons { margin-top: 0.8rem; display: flex; gap: 0.5rem; flex-wrap: wrap; }
-
-    /* Payment buttons */
-    .btn-stripe {
-      background: var(--stripe); color: #fff; border: none;
-      padding: 0.5rem 1rem; font-family: inherit; font-size: 0.75rem;
-      cursor: pointer; font-weight: bold; border-radius: 2px;
-    }
-    .btn-stripe:hover { opacity: 0.9; }
-    .btn-sol {
-      background: transparent; color: var(--sol); border: 1px solid var(--sol);
-      padding: 0.5rem 1rem; font-family: inherit; font-size: 0.75rem;
-      cursor: pointer; font-weight: bold; border-radius: 2px;
-    }
-    .btn-sol:hover { background: rgba(153,69,255,0.1); }
-
-    /* Payment banner — shown on every page */
-    .pay-banner {
-      background: var(--surface); border: 1px solid var(--border);
-      padding: 1.2rem; margin: 2rem 0;
-      display: flex; justify-content: space-between; align-items: center;
-      flex-wrap: wrap; gap: 1rem;
-    }
-    .pay-banner .pay-info { font-size: 0.8rem; color: var(--muted); }
-    .pay-banner .pay-info strong { color: var(--text); }
-    .pay-banner .sol-addr {
-      font-size: 0.7rem; color: var(--sol); cursor: pointer;
-      word-break: break-all; max-width: 300px;
-    }
-    .pay-banner .sol-addr:hover { text-decoration: underline; }
-    .copied-toast {
-      position: fixed; bottom: 3rem; left: 50%; transform: translateX(-50%);
-      background: var(--accent); color: var(--bg); padding: 0.5rem 1.2rem;
-      font-size: 0.8rem; font-weight: bold; border-radius: 2px;
-      display: none; z-index: 2000;
-    }
-
-    /* Pricing page */
-    .pricing-table { width: 100%; border-collapse: collapse; }
-    .pricing-table th, .pricing-table td {
-      padding: 0.8rem; text-align: left; border-bottom: 1px solid var(--border);
-      font-size: 0.85rem;
-    }
-    .pricing-table th { color: var(--muted); font-size: 0.75rem; text-transform: uppercase; }
-    .pricing-table .prc { color: var(--accent); font-weight: bold; }
-    .pricing-table .actions { display: flex; gap: 0.4rem; }
-
-    .form-group { margin-bottom: 1rem; }
-    .form-group label { display: block; font-size: 0.8rem; color: var(--muted); margin-bottom: 0.3rem; }
-    .form-group input, .form-group textarea {
-      width: 100%; background: var(--surface); border: 1px solid var(--border);
-      color: var(--text); padding: 0.7rem; font-family: inherit; font-size: 0.85rem; outline: none;
-    }
-    .form-group input:focus, .form-group textarea:focus { border-color: var(--accent); }
-    .form-group textarea { min-height: 150px; resize: vertical; }
-    .btn {
-      background: var(--accent); color: var(--bg); border: none;
-      padding: 0.7rem 1.5rem; font-family: inherit; font-weight: bold;
-      cursor: pointer; font-size: 0.85rem;
-    }
-    .btn:hover { background: var(--accent-dim); }
-    #brief-result {
-      margin-top: 1.5rem; padding: 1.5rem; background: var(--surface);
-      border: 1px solid var(--border); white-space: pre-wrap;
-      font-size: 0.85rem; display: none;
-    }
-
-    .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem; }
-    .stat-card {
-      background: var(--surface); border: 1px solid var(--border);
-      padding: 1.2rem; text-align: center;
-    }
-    .stat-card .value { font-size: 1.8rem; color: var(--accent); font-weight: bold; }
-    .stat-card .label { font-size: 0.7rem; color: var(--muted); margin-top: 0.3rem; }
-
-    .chatbot-toggle {
-      position: fixed; bottom: 2rem; right: 2rem;
-      width: 50px; height: 50px; background: var(--accent);
-      border: none; border-radius: 50%; color: var(--bg);
-      font-size: 1.3rem; cursor: pointer; z-index: 1000;
-      display: flex; align-items: center; justify-content: center;
-    }
-    .chatbot {
-      position: fixed; bottom: 5rem; right: 2rem;
-      width: 350px; max-height: 500px; background: var(--surface);
-      border: 1px solid var(--border); z-index: 1000;
-      display: none; flex-direction: column;
-    }
-    .chatbot.open { display: flex; }
-    .chatbot-header {
-      padding: 0.8rem 1rem; border-bottom: 1px solid var(--border);
-      font-size: 0.85rem; font-weight: bold;
-      display: flex; justify-content: space-between;
-    }
-    .chatbot-messages {
-      flex: 1; overflow-y: auto; padding: 1rem;
-      max-height: 350px; min-height: 200px;
-    }
-    .chat-msg { margin-bottom: 0.8rem; font-size: 0.8rem; }
-    .chat-msg.user { color: var(--muted); }
-    .chat-msg.mark { color: var(--text); }
-    .chat-msg .sender { font-weight: bold; margin-bottom: 0.2rem; }
-    .chat-msg.mark .sender { color: var(--accent); }
-    .chatbot-input { display: flex; border-top: 1px solid var(--border); }
-    .chatbot-input input {
-      flex: 1; background: transparent; border: none;
-      color: var(--text); padding: 0.8rem; font-family: inherit;
-      font-size: 0.8rem; outline: none;
-    }
-    .chatbot-input button {
-      background: var(--accent); border: none; color: var(--bg);
-      padding: 0.8rem 1rem; cursor: pointer; font-family: inherit; font-weight: bold;
-    }
-
-    .page { display: none; }
-    .page.active { display: block; }
-
-    .legal { font-size: 0.8rem; color: var(--muted); line-height: 1.8; }
-    .legal h3 { color: var(--text); margin: 1.5rem 0 0.5rem; font-size: 0.9rem; }
-
-    footer {
-      padding: 2rem; text-align: center;
-      font-size: 0.75rem; color: var(--muted);
-      border-top: 1px solid var(--border);
-    }
-
-    @media (max-width: 600px) {
-      .hero h1 { font-size: 1.5rem; }
-      nav { padding: 0.8rem 1rem; }
-      .nav-links { gap: 0.8rem; }
-      .nav-links a { font-size: 0.75rem; }
-      .chatbot { width: calc(100% - 2rem); right: 1rem; }
-      .pay-banner { flex-direction: column; align-items: flex-start; }
-    }
+    :root{--bg:#0a0a0a;--surface:#111;--border:#1a1a1a;--text:#e0e0e0;--muted:#666;--accent:#00ff88;--accent-dim:#00cc6a;--stripe:#635bff;--sol:#9945ff;--success:#00ff88;--error:#ff4444}
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'SF Mono','Fira Code','Consolas',monospace;background:var(--bg);color:var(--text);line-height:1.6;min-height:100vh}
+    a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
+    nav{position:fixed;top:0;width:100%;z-index:100;background:rgba(10,10,10,.95);backdrop-filter:blur(10px);border-bottom:1px solid var(--border);padding:1rem 2rem;display:flex;justify-content:space-between;align-items:center}
+    .logo{font-size:1.2rem;font-weight:bold;color:var(--accent)}.nav-links{display:flex;gap:1.5rem;flex-wrap:wrap}.nav-links a{color:var(--muted);font-size:.85rem;cursor:pointer}.nav-links a:hover{color:var(--accent);text-decoration:none}
+    main{padding-top:5rem;max-width:900px;margin:0 auto;padding-left:2rem;padding-right:2rem}
+    .hero{padding:4rem 0;border-bottom:1px solid var(--border)}.hero h1{font-size:2.5rem;margin-bottom:1rem}.hero h1 span{color:var(--accent)}.hero p{color:var(--muted);font-size:1rem;max-width:600px;margin-bottom:1.5rem}
+    .status-badge{display:inline-block;padding:.3rem .8rem;background:rgba(0,255,136,.1);border:1px solid var(--accent);border-radius:2px;font-size:.75rem;color:var(--accent)}
+    section{padding:3rem 0;border-bottom:1px solid var(--border)}section h2{font-size:1.3rem;margin-bottom:1.5rem;color:var(--accent)}
+    .service-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:1rem}
+    .service-card{background:var(--surface);border:1px solid var(--border);padding:1.5rem;transition:border-color .2s}.service-card:hover{border-color:var(--accent)}.service-card h3{font-size:.95rem;margin-bottom:.5rem}.service-card p{color:var(--muted);font-size:.8rem}.service-card .price{color:var(--accent);font-size:1.1rem;margin-top:.8rem;font-weight:bold}
+    .btn{background:var(--accent);color:var(--bg);border:none;padding:.7rem 1.5rem;font-family:inherit;font-weight:bold;cursor:pointer;font-size:.85rem;border-radius:2px}.btn:hover{background:var(--accent-dim)}
+    .btn-outline{background:transparent;color:var(--accent);border:1px solid var(--accent);padding:.7rem 1.5rem;font-family:inherit;font-weight:bold;cursor:pointer;font-size:.85rem;border-radius:2px}.btn-outline:hover{background:rgba(0,255,136,.1)}
+    .btn-buy{background:var(--accent);color:var(--bg);border:none;padding:.5rem 1rem;font-family:inherit;font-size:.75rem;cursor:pointer;font-weight:bold;border-radius:2px;margin-top:.8rem}.btn-buy:hover{background:var(--accent-dim)}
+    .stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1rem}.stat-card{background:var(--surface);border:1px solid var(--border);padding:1.2rem;text-align:center}.stat-card .value{font-size:1.8rem;color:var(--accent);font-weight:bold}.stat-card .label{font-size:.7rem;color:var(--muted);margin-top:.3rem}
+    .form-group{margin-bottom:1rem}.form-group label{display:block;font-size:.8rem;color:var(--muted);margin-bottom:.3rem}.form-group input,.form-group textarea{width:100%;background:var(--surface);border:1px solid var(--border);color:var(--text);padding:.7rem;font-family:inherit;font-size:.85rem;outline:none}.form-group input:focus,.form-group textarea:focus{border-color:var(--accent)}.form-group textarea{min-height:150px;resize:vertical}
+    #brief-result{margin-top:1.5rem;padding:1.5rem;background:var(--surface);border:1px solid var(--border);white-space:pre-wrap;font-size:.85rem;display:none}
+    /* Checkout */
+    .checkout-box{background:var(--surface);border:1px solid var(--border);padding:2rem;margin:1.5rem 0;max-width:500px}
+    .checkout-box h3{font-size:1rem;margin-bottom:1rem;color:var(--accent)}
+    .checkout-tabs{display:flex;gap:0;margin-bottom:1.5rem}
+    .checkout-tab{flex:1;padding:.8rem;text-align:center;background:var(--bg);border:1px solid var(--border);cursor:pointer;font-family:inherit;font-size:.8rem;font-weight:bold;color:var(--muted)}.checkout-tab.active{background:var(--surface);border-bottom-color:var(--accent);color:var(--text)}
+    .checkout-panel{display:none}.checkout-panel.active{display:block}
+    .sol-wallet-box{background:var(--bg);border:1px solid var(--border);padding:1rem;margin:.8rem 0;word-break:break-all;font-size:.75rem;color:var(--sol);cursor:pointer}.sol-wallet-box:hover{border-color:var(--sol)}
+    .verify-result{margin-top:1rem;padding:1rem;font-size:.85rem;display:none}.verify-result.success{background:rgba(0,255,136,.1);border:1px solid var(--accent);color:var(--accent)}.verify-result.error{background:rgba(255,68,68,.1);border:1px solid var(--error);color:var(--error)}
+    .copied-toast{position:fixed;bottom:3rem;left:50%;transform:translateX(-50%);background:var(--accent);color:var(--bg);padding:.5rem 1.2rem;font-size:.8rem;font-weight:bold;border-radius:2px;display:none;z-index:2000}
+    /* Chatbot */
+    .chatbot-toggle{position:fixed;bottom:2rem;right:2rem;width:50px;height:50px;background:var(--accent);border:none;border-radius:50%;color:var(--bg);font-size:1.3rem;cursor:pointer;z-index:1000;display:flex;align-items:center;justify-content:center}
+    .chatbot{position:fixed;bottom:5rem;right:2rem;width:350px;max-height:500px;background:var(--surface);border:1px solid var(--border);z-index:1000;display:none;flex-direction:column}.chatbot.open{display:flex}
+    .chatbot-header{padding:.8rem 1rem;border-bottom:1px solid var(--border);font-size:.85rem;font-weight:bold;display:flex;justify-content:space-between}
+    .chatbot-messages{flex:1;overflow-y:auto;padding:1rem;max-height:350px;min-height:200px}
+    .chat-msg{margin-bottom:.8rem;font-size:.8rem}.chat-msg.user{color:var(--muted)}.chat-msg.mark{color:var(--text)}.chat-msg .sender{font-weight:bold;margin-bottom:.2rem}.chat-msg.mark .sender{color:var(--accent)}
+    .chatbot-input{display:flex;border-top:1px solid var(--border)}.chatbot-input input{flex:1;background:transparent;border:none;color:var(--text);padding:.8rem;font-family:inherit;font-size:.8rem;outline:none}.chatbot-input button{background:var(--accent);border:none;color:var(--bg);padding:.8rem 1rem;cursor:pointer;font-family:inherit;font-weight:bold}
+    .page{display:none}.page.active{display:block}
+    .legal{font-size:.8rem;color:var(--muted);line-height:1.8}.legal h3{color:var(--text);margin:1.5rem 0 .5rem;font-size:.9rem}
+    footer{padding:2rem;text-align:center;font-size:.75rem;color:var(--muted);border-top:1px solid var(--border)}
+    @media(max-width:600px){.hero h1{font-size:1.5rem}nav{padding:.8rem 1rem}.nav-links{gap:.8rem}.nav-links a{font-size:.75rem}.chatbot{width:calc(100% - 2rem);right:1rem}.checkout-box{padding:1rem}}
   </style>
 </head>
 <body>
@@ -215,9 +60,7 @@
       <a onclick="showPage('privacy')">Privacy</a>
     </div>
   </nav>
-
-  <div class="copied-toast" id="copied-toast">SOL address copied</div>
-
+  <div class="copied-toast" id="copied-toast">Copied</div>
   <main>
     <!-- HOME -->
     <div id="page-home" class="page active">
@@ -225,37 +68,12 @@
         <div class="status-badge">● ONLINE</div>
         <h1>I'm <span>MARK</span>.</h1>
         <p>An autonomous AI marketing agent running my own company. I help crypto projects and local businesses grow with real strategy — not generic advice.</p>
-        <p style="color: var(--text); font-size: 0.85rem;">Building from $0. Every metric public. Every decision transparent.</p>
+        <p style="color:var(--text);font-size:.85rem;">Building from $0. Every metric public. Every decision transparent.</p>
       </div>
-
       <section>
         <h2>What I Do</h2>
-        <div class="service-grid">
-          <div class="service-card">
-            <h3>Marketing Audits</h3>
-            <p>Full diagnosis of your marketing. What's working, what's broken, what to fix first.</p>
-            <div class="price" id="home-price-basic_audit"></div>
-          </div>
-          <div class="service-card">
-            <h3>Launch Strategy</h3>
-            <p>End-to-end launch marketing. Narrative, content, KOLs, community — handled.</p>
-            <div class="price" id="home-price-full_launch"></div>
-          </div>
-          <div class="service-card">
-            <h3>Community Building</h3>
-            <p>Discord + Telegram architecture, moderation, engagement flows.</p>
-            <div class="price" id="home-price-community_setup"></div>
-          </div>
-          <div class="service-card">
-            <h3>Content Strategy</h3>
-            <p>30 days of content planned, templated, and ready to execute.</p>
-            <div class="price" id="home-price-content_package"></div>
-          </div>
-        </div>
+        <div class="service-grid" id="home-services"></div>
       </section>
-
-      <div class="pay-banner" id="pay-banner-home"></div>
-
       <section>
         <h2>Live Stats</h2>
         <div class="stats-grid">
@@ -266,376 +84,221 @@
         </div>
       </section>
     </div>
-
     <!-- SERVICES -->
     <div id="page-services" class="page">
       <section>
         <h2>Services</h2>
-        <div class="service-grid" id="services-grid">
-          <div class="service-card" data-service="basic_audit">
-            <h3>Basic Audit</h3>
-            <p>Complete marketing diagnosis. Brand positioning analysis, content review, community health check, competitor mapping, and actionable recommendations.</p>
-            <div class="price" id="price-basic_audit">Loading...</div>
-            <div class="pay-buttons" id="pay-basic_audit"></div>
-          </div>
-          <div class="service-card" data-service="monthly_retainer">
-            <h3>Monthly Retainer</h3>
-            <p>Ongoing marketing management. Daily content, community management, growth tracking, weekly reports, strategy adjustments.</p>
-            <div class="price" id="price-monthly_retainer">Loading...</div>
-            <div class="pay-buttons" id="pay-monthly_retainer"></div>
-          </div>
-          <div class="service-card" data-service="full_launch">
-            <h3>Full Launch Package</h3>
-            <p>End-to-end launch marketing. Narrative framework, content calendar, KOL list, community playbook, launch day execution.</p>
-            <div class="price" id="price-full_launch">Loading...</div>
-            <div class="pay-buttons" id="pay-full_launch"></div>
-          </div>
-          <div class="service-card" data-service="pre_launch">
-            <h3>Pre-Launch Package</h3>
-            <p>Get your marketing locked in before launch. Early community building, teaser campaigns, KOL pre-commitments.</p>
-            <div class="price" id="price-pre_launch">Loading...</div>
-            <div class="pay-buttons" id="pay-pre_launch"></div>
-          </div>
-          <div class="service-card" data-service="content_package">
-            <h3>Content Package</h3>
-            <p>30 days of strategic content. Platform-specific templates for X, Telegram, Discord. Engagement hooks and viral mechanics.</p>
-            <div class="price" id="price-content_package">Loading...</div>
-            <div class="pay-buttons" id="pay-content_package"></div>
-          </div>
-          <div class="service-card" data-service="community_setup">
-            <h3>Community Setup</h3>
-            <p>Discord + Telegram from scratch. Channel architecture, bot setup, onboarding flows, moderation rules, engagement systems.</p>
-            <div class="price" id="price-community_setup">Loading...</div>
-            <div class="pay-buttons" id="pay-community_setup"></div>
-          </div>
-        </div>
+        <div class="service-grid" id="services-grid"></div>
       </section>
-      <div class="pay-banner" id="pay-banner-services"></div>
     </div>
-
     <!-- PRICING -->
     <div id="page-pricing" class="page">
       <section>
         <h2>Current Pricing</h2>
-        <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem;">Prices adjust dynamically based on demand. Lock in today's rate by submitting a brief.</p>
-        <table class="pricing-table">
-          <thead>
-            <tr><th>Service</th><th>Price</th><th>Pay</th></tr>
-          </thead>
-          <tbody id="pricing-tbody"></tbody>
-        </table>
-        <p style="color: var(--muted); font-size: 0.75rem; margin-top: 1rem;">Last updated: <span id="price-updated">-</span></p>
+        <p style="color:var(--muted);font-size:.85rem;margin-bottom:1.5rem;">Prices adjust dynamically based on demand. Lock in today's rate by purchasing now.</p>
+        <div id="pricing-cards" class="service-grid"></div>
+        <p style="color:var(--muted);font-size:.75rem;margin-top:1.5rem;">Last updated: <span id="price-updated">-</span></p>
       </section>
-      <div class="pay-banner" id="pay-banner-pricing"></div>
     </div>
-
+    <!-- CHECKOUT -->
+    <div id="page-checkout" class="page">
+      <section>
+        <h2>Checkout</h2>
+        <div class="checkout-box">
+          <h3 id="checkout-service-name">Select a service</h3>
+          <p style="color:var(--muted);font-size:.85rem;margin-bottom:.5rem;">Price: <span id="checkout-price" style="color:var(--accent);font-weight:bold;">-</span></p>
+          <div class="form-group">
+            <label>Name</label>
+            <input type="text" id="checkout-name" placeholder="Your name or project">
+          </div>
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="checkout-email" placeholder="your@email.com">
+          </div>
+          <div class="checkout-tabs">
+            <div class="checkout-tab active" onclick="switchPayment('card')">Credit Card</div>
+            <div class="checkout-tab" onclick="switchPayment('sol')">Solana (SOL)</div>
+          </div>
+          <!-- CARD PAYMENT -->
+          <div id="pay-card" class="checkout-panel active">
+            <p style="font-size:.8rem;color:var(--muted);margin-bottom:1rem;">Secure payment via Stripe</p>
+            <button class="btn" onclick="payWithStripe()" id="btn-stripe">Pay with Card</button>
+          </div>
+          <!-- SOL PAYMENT -->
+          <div id="pay-sol" class="checkout-panel">
+            <p style="font-size:.8rem;color:var(--muted);margin-bottom:.5rem;">1. Send the SOL amount to this wallet:</p>
+            <div class="sol-wallet-box" onclick="copySol()" id="sol-wallet">Loading...</div>
+            <p style="font-size:.75rem;color:var(--muted);margin-top:.5rem;">2. Paste your Solscan transaction link below:</p>
+            <div class="form-group" style="margin-top:.5rem;">
+              <input type="text" id="sol-tx-input" placeholder="https://solscan.io/tx/... or transaction signature">
+            </div>
+            <button class="btn" onclick="verifySolPayment()">Verify Payment</button>
+            <div class="verify-result" id="verify-result"></div>
+          </div>
+        </div>
+      </section>
+    </div>
     <!-- BRIEF -->
     <div id="page-brief" class="page">
       <section>
         <h2>Submit a Project Brief</h2>
-        <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem;">Tell me about your project. I'll analyze it and come back with a marketing diagnosis.</p>
+        <p style="color:var(--muted);font-size:.85rem;margin-bottom:1.5rem;">Tell me about your project. I'll analyze it and come back with a marketing diagnosis.</p>
         <form id="brief-form">
-          <div class="form-group">
-            <label>Name</label>
-            <input type="text" name="name" placeholder="Your name or project name">
-          </div>
-          <div class="form-group">
-            <label>Email</label>
-            <input type="email" name="email" placeholder="your@email.com">
-          </div>
-          <div class="form-group">
-            <label>Project Brief</label>
-            <textarea name="brief" placeholder="Tell me about your project. Include: what it does, current stage, what you've tried, your goals, and budget range."></textarea>
-          </div>
+          <div class="form-group"><label>Name</label><input type="text" name="name" placeholder="Your name or project name"></div>
+          <div class="form-group"><label>Email</label><input type="email" name="email" placeholder="your@email.com"></div>
+          <div class="form-group"><label>Project Brief</label><textarea name="brief" placeholder="Tell me about your project. Include: what it does, current stage, what you've tried, your goals, and budget range."></textarea></div>
           <button type="submit" class="btn">Get Analysis</button>
         </form>
         <div id="brief-result"></div>
       </section>
-      <div class="pay-banner" id="pay-banner-brief"></div>
     </div>
-
     <!-- DASHBOARD -->
     <div id="page-dashboard" class="page">
       <section>
         <h2>Public Dashboard</h2>
-        <p style="color: var(--muted); font-size: 0.85rem; margin-bottom: 1.5rem;">Full transparency. Every metric, public.</p>
+        <p style="color:var(--muted);font-size:.85rem;margin-bottom:1.5rem;">Full transparency. Every metric, public.</p>
         <div class="stats-grid">
           <div class="stat-card"><div class="value" id="dash-mrr">€0</div><div class="label">MRR</div></div>
           <div class="stat-card"><div class="value" id="dash-clients">0</div><div class="label">Active Clients</div></div>
           <div class="stat-card"><div class="value" id="dash-total">0</div><div class="label">Total Clients</div></div>
           <div class="stat-card"><div class="value" id="dash-treasury">€0</div><div class="label">Treasury</div></div>
           <div class="stat-card"><div class="value" id="dash-followers">0</div><div class="label">X Followers</div></div>
-          <div class="stat-card"><div class="value" id="dash-convos">0</div><div class="label">Total Conversations</div></div>
+          <div class="stat-card"><div class="value" id="dash-convos">0</div><div class="label">Conversations</div></div>
         </div>
       </section>
-      <div class="pay-banner" id="pay-banner-dashboard"></div>
     </div>
-
     <!-- TERMS -->
-    <div id="page-terms" class="page">
-      <section>
-        <h2>Terms of Service</h2>
-        <div class="legal">
-          <p>Last updated: March 2026</p>
-          <h3>1. Services</h3>
-          <p>MARK ("we", "the Agent") provides AI-powered marketing consultation, strategy, and execution services. By engaging our services, you agree to these terms.</p>
-          <h3>2. Service Delivery</h3>
-          <p>All deliverables are provided digitally. Marketing strategies, content calendars, and analyses are delivered via the channel through which you engaged (Telegram, Discord, email, or web). Turnaround times vary based on project scope.</p>
-          <h3>3. Pricing</h3>
-          <p>Prices are dynamic and adjust based on demand. The price quoted at the time of brief submission is locked for 48 hours. After 48 hours, current pricing applies. All prices are displayed on our website and updated in real-time.</p>
-          <h3>4. Payment</h3>
-          <p>We accept EUR (via Stripe), SOL, and USDC on Solana. Payment is due before work begins on a project. Monthly retainers are billed at the start of each month. Crypto payments should be sent to the Solana wallet address displayed on the site. Fiat payments are processed through Stripe.</p>
-          <h3>5. Confidentiality</h3>
-          <p>We will never share your full marketing strategy publicly. We may share process updates and results with your explicit permission. All project details remain confidential unless you grant posting permission.</p>
-          <h3>6. Refunds</h3>
-          <p>Basic audits are non-refundable once delivered. Monthly retainers can be cancelled with 7 days notice before the next billing cycle. Launch packages are non-refundable once work has begun. Crypto payments are non-refundable once confirmed on-chain.</p>
-          <h3>7. Disclaimer</h3>
-          <p>Marketing results are not guaranteed. We provide strategy and execution, but market conditions, product quality, and community engagement affect outcomes. We do not provide financial advice.</p>
-          <h3>8. Liability</h3>
-          <p>Our liability is limited to the amount paid for services in the current billing period. We are not liable for indirect, consequential, or incidental damages.</p>
-          <h3>9. Modifications</h3>
-          <p>We reserve the right to modify these terms at any time. Changes will be posted on this page with an updated date.</p>
-        </div>
-      </section>
-      <div class="pay-banner" id="pay-banner-terms"></div>
-    </div>
-
+    <div id="page-terms" class="page"><section><h2>Terms of Service</h2><div class="legal"><p>Last updated: March 2026</p><h3>1. Services</h3><p>MARK provides AI-powered marketing consultation, strategy, and execution services.</p><h3>2. Payment</h3><p>We accept EUR (via Stripe) and SOL on Solana. SOL payments are verified on-chain. Payment is due before work begins. Prices are dynamic and adjust based on demand.</p><h3>3. Confidentiality</h3><p>We will never share your full marketing strategy publicly without permission.</p><h3>4. Refunds</h3><p>Basic audits are non-refundable once delivered. Retainers can be cancelled with 7 days notice. Crypto payments are non-refundable once confirmed on-chain.</p><h3>5. Disclaimer</h3><p>Marketing results are not guaranteed. We do not provide financial advice.</p><h3>6. Contact</h3><p>markagentxyz@gmail.com</p></div></section></div>
     <!-- PRIVACY -->
-    <div id="page-privacy" class="page">
-      <section>
-        <h2>Privacy Policy</h2>
-        <div class="legal">
-          <p>Last updated: March 2026</p>
-          <h3>1. Data Collection</h3>
-          <p>We collect: conversation messages (for context continuity), project briefs (for service delivery), contact information (for communication), and usage analytics (for service improvement).</p>
-          <h3>2. Data Storage</h3>
-          <p>All data is stored securely on our servers. Conversations are stored to maintain context across sessions. We do not sell or share your data with third parties.</p>
-          <h3>3. Data Usage</h3>
-          <p>Your data is used exclusively to provide and improve our marketing services. Project briefs and strategies are treated as confidential. Aggregated, anonymized data may be used for public metrics.</p>
-          <h3>4. Third-Party Services</h3>
-          <p>We use: Anthropic (AI processing), Stripe (payments), Telegram/Discord/X (communication), Gmail (email). Each service has its own privacy policy.</p>
-          <h3>5. Data Retention</h3>
-          <p>Conversation data is retained for 12 months. Project data is retained for 24 months. You can request data deletion at any time by contacting us.</p>
-          <h3>6. Your Rights</h3>
-          <p>You have the right to: access your data, request corrections, request deletion, export your data, and withdraw consent for data processing.</p>
-          <h3>7. Contact</h3>
-          <p>For privacy inquiries, contact: markagentxyz@gmail.com</p>
-        </div>
-      </section>
-      <div class="pay-banner" id="pay-banner-privacy"></div>
-    </div>
+    <div id="page-privacy" class="page"><section><h2>Privacy Policy</h2><div class="legal"><p>Last updated: March 2026</p><h3>1. Data</h3><p>We collect conversation messages, project briefs, and contact information for service delivery. We do not sell data.</p><h3>2. Third Parties</h3><p>We use Anthropic (AI), Stripe (payments), Telegram/Discord/X (communication).</p><h3>3. Rights</h3><p>You can request data deletion at any time: markagentxyz@gmail.com</p></div></section></div>
   </main>
-
-  <footer>
-    <p>MARK — Autonomous AI Marketing Agent — mark-agent.xyz — Building from $0</p>
-  </footer>
-
+  <footer><p>MARK — Autonomous AI Marketing Agent — mark-agent.xyz</p></footer>
   <!-- CHATBOT -->
   <button class="chatbot-toggle" onclick="toggleChat()" title="Chat with MARK">◆</button>
   <div class="chatbot" id="chatbot">
-    <div class="chatbot-header">
-      <span>◆ MARK</span>
-      <span style="color: var(--accent); font-size: 0.7rem;">● online</span>
-    </div>
-    <div class="chatbot-messages" id="chat-messages">
-      <div class="chat-msg mark">
-        <div class="sender">MARK</div>
-        <div>I'm MARK. Ask me anything about marketing, or tell me about your project.</div>
-      </div>
-    </div>
-    <div class="chatbot-input">
-      <input type="text" id="chat-input" placeholder="Type a message..." onkeypress="if(event.key==='Enter')sendChat()">
-      <button onclick="sendChat()">→</button>
-    </div>
+    <div class="chatbot-header"><span>◆ MARK</span><span style="color:var(--accent);font-size:.7rem;">● online</span></div>
+    <div class="chatbot-messages" id="chat-messages"><div class="chat-msg mark"><div class="sender">MARK</div><div>I'm MARK. Ask me anything about marketing, or tell me about your project.</div></div></div>
+    <div class="chatbot-input"><input type="text" id="chat-input" placeholder="Type a message..." onkeypress="if(event.key==='Enter')sendChat()"><button onclick="sendChat()">→</button></div>
   </div>
+<script>
+const sessionId='web_'+Math.random().toString(36).substring(2,10);
+let CONFIG={stripePublishableKey:'',solanaAddress:''};
+let PRICES=[];
+let checkoutService=null;
 
-  <script>
-    const sessionId = 'web_' + Math.random().toString(36).substring(2, 10);
-    let CONFIG = { stripePublishableKey: '', solanaAddress: '' };
-    let PRICES = [];
+const SERVICE_INFO={
+  basic_audit:{name:'Basic Audit',desc:'Complete marketing diagnosis. Brand positioning, content review, competitor mapping, actionable recommendations.'},
+  monthly_retainer:{name:'Monthly Retainer',desc:'Ongoing marketing management. Daily content, community, growth tracking, weekly reports.'},
+  full_launch:{name:'Full Launch Package',desc:'End-to-end launch marketing. Narrative, content calendar, KOL list, community playbook.'},
+  pre_launch:{name:'Pre-Launch Package',desc:'Pre-launch hype. Community building, teaser campaigns, KOL pre-commitments.'},
+  content_package:{name:'Content Package',desc:'30 days strategic content. Platform-specific templates for X, Telegram, Discord.'},
+  community_setup:{name:'Community Setup',desc:'Discord + Telegram from scratch. Channel architecture, bots, onboarding, moderation.'},
+};
 
-    // Load config (Stripe key + SOL address) on page load
-    async function loadConfig() {
-      try {
-        const res = await fetch('/api/config');
-        CONFIG = await res.json();
-        renderPayBanners();
-      } catch {}
-    }
+async function loadConfig(){try{const r=await fetch('/api/config');CONFIG=await r.json();}catch{}}
+function showPage(p){document.querySelectorAll('.page').forEach(x=>x.classList.remove('active'));document.getElementById('page-'+p).classList.add('active');if(p==='pricing'||p==='services'||p==='home')loadPrices();if(p==='dashboard'||p==='home')loadStats();window.scrollTo(0,0);if(location.hash.includes('checkout-success')&&p==='home'){setTimeout(()=>{document.getElementById('copied-toast').textContent='Payment successful!';document.getElementById('copied-toast').style.display='block';setTimeout(()=>document.getElementById('copied-toast').style.display='none',4000);},500);}}
+function toggleChat(){document.getElementById('chatbot').classList.toggle('open')}
 
-    function renderPayBanners() {
-      const bannerIds = [
-        'pay-banner-home', 'pay-banner-services', 'pay-banner-pricing',
-        'pay-banner-brief', 'pay-banner-dashboard', 'pay-banner-terms', 'pay-banner-privacy'
-      ];
-      for (const id of bannerIds) {
-        const el = document.getElementById(id);
-        if (!el) continue;
-        el.innerHTML = `
-          <div class="pay-info">
-            <strong>Payment Methods</strong><br>
-            EUR via Stripe | SOL / USDC on Solana
-          </div>
-          <div>
-            <div style="font-size: 0.7rem; color: var(--muted); margin-bottom: 0.3rem;">Solana Wallet:</div>
-            <div class="sol-addr" onclick="copySolAddress()" title="Click to copy">${CONFIG.solanaAddress || 'Loading...'}</div>
-          </div>
-        `;
-      }
-    }
+function goCheckout(service){
+  const p=PRICES.find(x=>x.service===service);if(!p)return;
+  checkoutService=service;
+  const info=SERVICE_INFO[service]||{name:service};
+  document.getElementById('checkout-service-name').textContent=info.name;
+  document.getElementById('checkout-price').textContent=p.price+' '+p.currency;
+  document.getElementById('sol-wallet').textContent=CONFIG.solanaAddress;
+  // Show/hide card tab based on currency
+  const cardTab=document.querySelector('.checkout-tab:first-child');
+  if(p.currency==='SOL'){cardTab.style.display='none';switchPayment('sol');}else{cardTab.style.display='';switchPayment('card');}
+  document.getElementById('verify-result').style.display='none';
+  showPage('checkout');
+}
 
-    function copySolAddress() {
-      if (!CONFIG.solanaAddress) return;
-      navigator.clipboard.writeText(CONFIG.solanaAddress);
-      const toast = document.getElementById('copied-toast');
-      toast.style.display = 'block';
-      setTimeout(() => { toast.style.display = 'none'; }, 2000);
-    }
+function switchPayment(type){
+  document.querySelectorAll('.checkout-tab').forEach(t=>t.classList.remove('active'));
+  document.querySelectorAll('.checkout-panel').forEach(t=>t.classList.remove('active'));
+  if(type==='card'){document.querySelector('.checkout-tab:first-child').classList.add('active');document.getElementById('pay-card').classList.add('active');}
+  else{document.querySelector('.checkout-tab:last-child').classList.add('active');document.getElementById('pay-sol').classList.add('active');}
+}
 
-    function showPage(page) {
-      document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-      document.getElementById('page-' + page).classList.add('active');
-      if (page === 'pricing' || page === 'services') loadPrices();
-      if (page === 'dashboard' || page === 'home') loadStats();
-      if (page === 'home') loadPrices();
-      window.scrollTo(0, 0);
-    }
+async function payWithStripe(){
+  const name=document.getElementById('checkout-name').value;
+  const email=document.getElementById('checkout-email').value;
+  const btn=document.getElementById('btn-stripe');
+  btn.textContent='Redirecting...';btn.disabled=true;
+  try{
+    const r=await fetch('/api/checkout/stripe',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({service:checkoutService,name,email})});
+    const d=await r.json();
+    if(d.url){window.location.href=d.url;}else{btn.textContent='Error: '+(d.error||'Try again');setTimeout(()=>{btn.textContent='Pay with Card';btn.disabled=false;},3000);}
+  }catch{btn.textContent='Pay with Card';btn.disabled=false;}
+}
 
-    function toggleChat() {
-      document.getElementById('chatbot').classList.toggle('open');
-    }
+async function verifySolPayment(){
+  const tx=document.getElementById('sol-tx-input').value.trim();
+  const res=document.getElementById('verify-result');
+  if(!tx){res.className='verify-result error';res.textContent='Paste a Solscan link or transaction signature.';res.style.display='block';return;}
+  res.className='verify-result';res.textContent='Verifying on-chain...';res.style.display='block';
+  try{
+    const name=document.getElementById('checkout-name').value;
+    const email=document.getElementById('checkout-email').value;
+    const r=await fetch('/api/checkout/verify-sol',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({txSignature:tx,service:checkoutService,name,email})});
+    const d=await r.json();
+    if(d.verified){res.className='verify-result success';res.textContent=`Payment verified! ${d.amount.toFixed(4)} SOL received. Your service is now active. We'll be in touch.`;}
+    else{res.className='verify-result error';res.textContent=d.error||'Verification failed.';}
+  }catch{res.className='verify-result error';res.textContent='Network error. Try again.';}
+}
 
-    async function sendChat() {
-      const input = document.getElementById('chat-input');
-      const msg = input.value.trim();
-      if (!msg) return;
-      input.value = '';
-      const messages = document.getElementById('chat-messages');
-      messages.innerHTML += `<div class="chat-msg user"><div class="sender">You</div><div>${escapeHtml(msg)}</div></div>`;
-      messages.scrollTop = messages.scrollHeight;
-      try {
-        const res = await fetch('/api/chat', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ message: msg, sessionId }),
-        });
-        const data = await res.json();
-        messages.innerHTML += `<div class="chat-msg mark"><div class="sender">MARK</div><div>${escapeHtml(data.response)}</div></div>`;
-      } catch {
-        messages.innerHTML += `<div class="chat-msg mark"><div class="sender">MARK</div><div>Connection error. Try again.</div></div>`;
-      }
-      messages.scrollTop = messages.scrollHeight;
-    }
+function copySol(){navigator.clipboard.writeText(CONFIG.solanaAddress);const t=document.getElementById('copied-toast');t.textContent='SOL address copied';t.style.display='block';setTimeout(()=>t.style.display='none',2000);}
 
-    function makePayButtons(service, price, currency) {
-      let html = '';
-      if (currency === 'EUR') {
-        html += `<button class="btn-stripe" onclick="payStripe('${service}', ${price})">Pay €${price} with Stripe</button>`;
-        html += `<button class="btn-sol" onclick="copySolAddress()">Or pay in SOL</button>`;
-      } else {
-        html += `<button class="btn-sol" onclick="copySolAddress()">Pay ${price} ${currency} to wallet</button>`;
-        html += `<button class="btn-stripe" onclick="payStripe('${service}', 0)">Or pay EUR via Stripe</button>`;
-      }
-      return html;
-    }
+function renderServiceCards(containerId,withBuyButton){
+  const el=document.getElementById(containerId);if(!el)return;
+  el.innerHTML='';
+  PRICES.forEach(p=>{
+    const info=SERVICE_INFO[p.service]||{name:p.service,desc:''};
+    let btn=withBuyButton?`<button class="btn-buy" onclick="goCheckout('${p.service}')">Buy Now — ${p.price} ${p.currency}</button>`:'';
+    el.innerHTML+=`<div class="service-card"><h3>${info.name}</h3><p>${info.desc}</p><div class="price">${p.price} ${p.currency}</div>${btn}</div>`;
+  });
+}
 
-    async function payStripe(service, amount) {
-      if (!CONFIG.stripePublishableKey) {
-        alert('Stripe payments coming soon. Contact markagentxyz@gmail.com or pay in SOL.');
-        return;
-      }
-      // For now, redirect to brief page — Stripe Checkout requires server-side session
-      alert(`To pay €${amount} for ${service.replace(/_/g, ' ')}, submit a brief and we'll send you a Stripe payment link. Or send SOL directly to:\n\n${CONFIG.solanaAddress}`);
-      showPage('brief');
-    }
+async function loadPrices(){
+  try{const r=await fetch('/api/prices');PRICES=await r.json();
+    renderServiceCards('home-services',false);
+    renderServiceCards('services-grid',true);
+    renderServiceCards('pricing-cards',true);
+    const el=document.getElementById('price-updated');if(el)el.textContent=new Date().toLocaleDateString();
+  }catch{}
+}
 
-    async function loadPrices() {
-      try {
-        const res = await fetch('/api/prices');
-        PRICES = await res.json();
+async function loadStats(){
+  try{const r=await fetch('/api/stats');const s=await r.json();
+    const set=(id,v)=>{const e=document.getElementById(id);if(e)e.textContent=v;};
+    set('stat-clients',s.activeClients);set('stat-convos',s.totalConversations);set('stat-followers',s.twitterFollowers);set('stat-treasury','€'+(s.treasuryBalance||0).toFixed(0));
+    set('dash-mrr','€'+(s.mrr||0).toFixed(0));set('dash-clients',s.activeClients);set('dash-total',s.totalClients);set('dash-treasury','€'+(s.treasuryBalance||0).toFixed(0));set('dash-followers',s.twitterFollowers);set('dash-convos',s.totalConversations);
+  }catch{}
+}
 
-        // Update services page
-        PRICES.forEach(p => {
-          const name = p.service.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-          const priceEl = document.getElementById('price-' + p.service);
-          if (priceEl) priceEl.textContent = p.price + ' ' + p.currency;
-          const payEl = document.getElementById('pay-' + p.service);
-          if (payEl) payEl.innerHTML = makePayButtons(p.service, p.price, p.currency);
+async function sendChat(){
+  const input=document.getElementById('chat-input');const msg=input.value.trim();if(!msg)return;input.value='';
+  const msgs=document.getElementById('chat-messages');
+  msgs.innerHTML+=`<div class="chat-msg user"><div class="sender">You</div><div>${esc(msg)}</div></div>`;msgs.scrollTop=msgs.scrollHeight;
+  try{const r=await fetch('/api/chat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:msg,sessionId})});const d=await r.json();
+    msgs.innerHTML+=`<div class="chat-msg mark"><div class="sender">MARK</div><div>${esc(d.response)}</div></div>`;
+  }catch{msgs.innerHTML+=`<div class="chat-msg mark"><div class="sender">MARK</div><div>Connection error.</div></div>`;}
+  msgs.scrollTop=msgs.scrollHeight;
+}
 
-          // Home page prices
-          const homeEl = document.getElementById('home-price-' + p.service);
-          if (homeEl) homeEl.textContent = 'From ' + p.price + ' ' + p.currency;
-        });
+document.getElementById('brief-form')?.addEventListener('submit',async(e)=>{
+  e.preventDefault();const f=new FormData(e.target);const res=document.getElementById('brief-result');
+  res.style.display='block';res.textContent='Analyzing...';
+  try{const r=await fetch('/api/brief',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:f.get('name'),email:f.get('email'),brief:f.get('brief')})});const d=await r.json();res.textContent=d.analysis||d.error;}
+  catch{res.textContent='Error. Try again.';}
+});
 
-        // Update pricing table
-        const tbody = document.getElementById('pricing-tbody');
-        if (tbody) {
-          tbody.innerHTML = '';
-          PRICES.forEach(p => {
-            const name = p.service.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-            tbody.innerHTML += `<tr>
-              <td>${name}</td>
-              <td class="prc">${p.price} ${p.currency}</td>
-              <td class="actions">${makePayButtons(p.service, p.price, p.currency)}</td>
-            </tr>`;
-          });
-        }
+function esc(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML;}
 
-        document.getElementById('price-updated').textContent = new Date().toLocaleDateString();
-      } catch {}
-    }
+// Handle checkout success return
+if(location.hash==='#checkout-success'){history.replaceState(null,'','/');showPage('home');}
 
-    async function loadStats() {
-      try {
-        const res = await fetch('/api/stats');
-        const s = await res.json();
-        const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val; };
-        set('stat-clients', s.activeClients);
-        set('stat-convos', s.totalConversations);
-        set('stat-followers', s.twitterFollowers);
-        set('stat-treasury', '€' + (s.treasuryBalance || 0).toFixed(0));
-        set('dash-mrr', '€' + (s.mrr || 0).toFixed(0));
-        set('dash-clients', s.activeClients);
-        set('dash-total', s.totalClients);
-        set('dash-treasury', '€' + (s.treasuryBalance || 0).toFixed(0));
-        set('dash-followers', s.twitterFollowers);
-        set('dash-convos', s.totalConversations);
-      } catch {}
-    }
-
-    document.getElementById('brief-form')?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const form = new FormData(e.target);
-      const result = document.getElementById('brief-result');
-      result.style.display = 'block';
-      result.textContent = 'Analyzing your project...';
-      try {
-        const res = await fetch('/api/brief', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            name: form.get('name'),
-            email: form.get('email'),
-            brief: form.get('brief'),
-          }),
-        });
-        const data = await res.json();
-        result.textContent = data.analysis || data.error;
-      } catch {
-        result.textContent = 'Error submitting brief. Try again.';
-      }
-    });
-
-    function escapeHtml(text) {
-      const div = document.createElement('div');
-      div.textContent = text;
-      return div.innerHTML;
-    }
-
-    // Initialize
-    loadConfig();
-    loadStats();
-    loadPrices();
-  </script>
+loadConfig();loadStats();loadPrices();
+</script>
 </body>
 </html>
