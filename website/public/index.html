@@ -206,9 +206,12 @@ function goCheckout(service){
   document.getElementById('checkout-service-name').textContent=info.name;
   document.getElementById('checkout-price').textContent=p.price+' '+p.currency;
   document.getElementById('sol-wallet').textContent=CONFIG.solanaAddress;
-  // Show/hide card tab based on currency
-  const cardTab=document.querySelector('.checkout-tab:first-child');
-  if(p.currency==='SOL'){cardTab.style.display='none';switchPayment('sol');}else{cardTab.style.display='';switchPayment('card');}
+  // Show EUR equivalent for SOL services
+  const SOL_EUR=130;
+  if(p.currency==='SOL'){
+    document.getElementById('checkout-price').innerHTML=p.price+' SOL <span style="color:var(--muted);font-size:.8rem;">(~€'+(p.price*SOL_EUR).toFixed(0)+' via card)</span>';
+  }
+  switchPayment('card');
   document.getElementById('verify-result').style.display='none';
   showPage('checkout');
 }

@@ -60,10 +60,10 @@ app.get('/api/pricing-history', (req, res) => {
   catch { res.status(500).json({ error: 'Could not fetch pricing history' }); }
 });
 
-// API: Stripe Checkout Session
+// API: Stripe Checkout Session — all services payable in EUR or USD
 app.post('/api/checkout/stripe', async (req, res) => {
   try {
-    const { service, email, name } = req.body;
+    const { service, email, name, currency } = req.body;
     if (!service) return res.status(400).json({ error: 'Service required' });
 
     const db = getDb();
@@ -74,28 +74,36 @@ app.post('/api/checkout/stripe', async (req, res) => {
       db.close();
     }
 
-    if (!priceData || priceData.currency !== 'EUR') {
-      return res.status(400).json({ error: 'This service requires SOL payment' });
+    if (!priceData) return res.status(400).json({ error: 'Service not found' });
+
+    // Convert SOL prices to EUR (approximate rate, updated periodically)
+    let amountEur = priceData.price;
+    let description = `Marketing service by MARK (mark-agent.xyz)`;
+    if (priceData.currency === 'SOL') {
+      const SOL_TO_EUR = 130; // Approximate SOL/EUR rate
+      amountEur = Math.round(priceData.price * SOL_TO_EUR);
+      description += ` — ${priceData.price} SOL equivalent`;
     }
 
+    const stripeCurrency = (currency === 'usd') ? 'usd' : 'eur';
     const serviceName = service.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card'],
       line_items: [{
         price_data: {
-          currency: 'eur',
+          currency: stripeCurrency,
           product_data: {
             name: `MARK — ${serviceName}`,
-            description: `Marketing service by MARK (mark-agent.xyz)`,
+            description,
           },
-          unit_amount: Math.round(priceData.price * 100),
+          unit_amount: Math.round(amountEur * 100),
         },
         quantity: 1,
       }],
       mode: 'payment',
       customer_email: email || undefined,
-      metadata: { service, client_name: name || '' },
+      metadata: { service, client_name: name || '', original_price: `${priceData.price} ${priceData.currency}` },
       success_url: `https://${DOMAIN}/#checkout-success`,
       cancel_url: `https://${DOMAIN}/#checkout-cancel`,
     });
