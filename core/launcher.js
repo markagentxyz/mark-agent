@@ -1,10 +1,9 @@
 /**
- * MARK Token Launcher — bags.fm integration
+ * MARK Token Launcher — pump.fun via PumpPortal API
  *
- * Launches MARK's own token on bags.fm with:
- * - No dev wallet (fair launch)
- * - All fees forwarded to MARK's treasury wallet
- * - Owner-only trigger (server-side auth, NOT through AI brain)
+ * - No dev wallet (fair launch, initial buy = 0)
+ * - Creator fees accumulate on pump.fun — claimed by fee-claimer.js
+ * - Owner-only trigger (never through AI brain)
  */
 import { Connection, Keypair, VersionedTransaction } from '@solana/web3.js';
 import bs58 from 'bs58';
@@ -19,43 +18,25 @@ dotenv.config({ path: join(__dirname, '..', '.env') });
 const RPC_URL = process.env.HELIUS_RPC_URL || 'https://api.mainnet-beta.solana.com';
 const TREASURY_PUBLIC = process.env.TREASURY_WALLET_PUBLIC_KEY;
 const TREASURY_PRIVATE = process.env.TREASURY_WALLET_PRIVATE_KEY;
-const BAGS_API_KEY = process.env.BAGS_API_KEY || '';
-const BAGS_API_BASE = 'https://public-api-v2.bags.fm/api/v1';
 
 function getKeypair() {
   if (!TREASURY_PRIVATE) throw new Error('Treasury wallet private key not configured');
   return Keypair.fromSecretKey(bs58.decode(TREASURY_PRIVATE));
 }
 
-function logLaunch(tokenAddress, name, symbol, status, details) {
-  const db = getDb();
-  try {
-    db.prepare(`
-      INSERT INTO treasury (type, amount, currency, description, investment_target)
-      VALUES ('token_launch', 0, 'SOL', ?, ?)
-    `).run(
-      `Token launch: ${name} ($${symbol}) — ${status}`,
-      JSON.stringify({ tokenAddress, name, symbol, status, details, timestamp: new Date().toISOString() })
-    );
-  } finally {
-    db.close();
-  }
-}
-
 /**
- * Launch MARK's token on bags.fm
- * @param {Object} params - Token parameters
+ * Launch token on pump.fun via PumpPortal
+ * @param {Object} params
  * @param {string} params.name - Token name
  * @param {string} params.symbol - Token ticker
- * @param {string} params.description - Token description
- * @param {string} params.imageUrl - Token image URL
- * @param {string} [params.twitter] - Twitter handle for fee routing
- * @param {number} [params.initialBuySOL] - Initial buy amount in SOL (0 = no dev buy)
+ * @param {string} params.description - Description
+ * @param {string} [params.imageUrl] - Image URL (or base64)
+ * @param {string} [params.twitter] - Twitter URL
+ * @param {string} [params.telegram] - Telegram URL
+ * @param {string} [params.website] - Website URL
+ * @param {number} [params.initialBuySOL] - Initial buy in SOL (0 = no dev buy)
  */
-export async function launchToken({ name, symbol, description, imageUrl, twitter, initialBuySOL = 0 }) {
-  if (!BAGS_API_KEY) {
-    throw new Error('BAGS_API_KEY not configured in .env');
-  }
+export async function launchToken({ name, symbol, description, imageUrl, twitter, telegram, website, initialBuySOL = 0 }) {
   if (!TREASURY_PRIVATE || !TREASURY_PUBLIC) {
     throw new Error('Treasury wallet not configured');
   }
@@ -63,109 +44,152 @@ export async function launchToken({ name, symbol, description, imageUrl, twitter
     throw new Error('Token name and symbol are required');
   }
 
-  const keypair = getKeypair();
+  const creatorKeypair = getKeypair();
+  const mintKeypair = Keypair.generate();
   const connection = new Connection(RPC_URL, 'confirmed');
 
-  console.log(`[LAUNCHER] Launching ${name} ($${symbol}) on bags.fm...`);
-  console.log(`[LAUNCHER] Treasury wallet: ${TREASURY_PUBLIC}`);
+  console.log(`[LAUNCHER] Launching ${name} ($${symbol}) on pump.fun...`);
+  console.log(`[LAUNCHER] Creator: ${TREASURY_PUBLIC}`);
+  console.log(`[LAUNCHER] Mint: ${mintKeypair.publicKey.toBase58()}`);
   console.log(`[LAUNCHER] Initial buy: ${initialBuySOL} SOL`);
-  console.log(`[LAUNCHER] No dev wallet — fees go to treasury`);
 
   try {
-    // Step 1: Create launch transaction via bags.fm API
-    const launchPayload = {
+    // Build metadata for PumpPortal
+    const tokenMetadata = {
       name,
       symbol,
       description: description || `${name} — launched by MARK, the autonomous AI marketing agent.`,
-      image: imageUrl || '',
-      creator: TREASURY_PUBLIC,
-      initialBuySOL: initialBuySOL,
-      // Fee sharing: 100% to MARK's treasury
-      feeRecipients: [
-        {
-          wallet: TREASURY_PUBLIC,
-          bps: 10000, // 100% of creator fees
-        }
-      ],
     };
 
-    // Add twitter handle for bags.fm social linking if provided
-    if (twitter) {
-      launchPayload.twitter = twitter;
+    if (twitter) tokenMetadata.twitter = twitter;
+    if (telegram) tokenMetadata.telegram = telegram;
+    if (website) tokenMetadata.website = website;
+
+    // If imageUrl is a URL, download and convert to base64
+    if (imageUrl && imageUrl.startsWith('http')) {
+      try {
+        const imgResponse = await fetch(imageUrl);
+        const buffer = await imgResponse.arrayBuffer();
+        const base64 = Buffer.from(buffer).toString('base64');
+        const contentType = imgResponse.headers.get('content-type') || 'image/png';
+        tokenMetadata.file = `data:${contentType};base64,${base64}`;
+      } catch (e) {
+        console.warn('[LAUNCHER] Could not fetch image, launching without:', e.message);
+      }
+    } else if (imageUrl) {
+      tokenMetadata.file = imageUrl; // Already base64
     }
 
-    const response = await fetch(`${BAGS_API_BASE}/token-launch/create-launch-transaction`, {
+    // Call PumpPortal API to create the launch transaction
+    const response = await fetch('https://pumpportal.fun/api/trade-local', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': BAGS_API_KEY,
-      },
-      body: JSON.stringify(launchPayload),
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        publicKey: TREASURY_PUBLIC,
+        action: 'create',
+        tokenMetadata,
+        mint: mintKeypair.publicKey.toBase58(),
+        denominatedInSol: 'true',
+        amount: initialBuySOL,
+        slippage: 10,
+        priorityFee: 0.0005,
+        pool: 'pump',
+      }),
     });
 
     if (!response.ok) {
-      const errorBody = await response.text();
-      throw new Error(`bags.fm API error ${response.status}: ${errorBody}`);
+      const errText = await response.text();
+      throw new Error(`PumpPortal API error ${response.status}: ${errText}`);
     }
 
-    const data = await response.json();
-    console.log('[LAUNCHER] Got transaction from bags.fm');
+    // PumpPortal returns raw transaction bytes
+    const txData = await response.arrayBuffer();
+    const tx = VersionedTransaction.deserialize(new Uint8Array(txData));
 
-    // Step 2: Sign and send the transaction
-    const txBuffer = Buffer.from(data.transaction, 'base64');
-    const transaction = VersionedTransaction.deserialize(txBuffer);
-    transaction.sign([keypair]);
+    // Sign with both creator and mint keypair
+    tx.sign([creatorKeypair, mintKeypair]);
 
-    const signature = await connection.sendRawTransaction(transaction.serialize(), {
+    // Send transaction
+    const signature = await connection.sendRawTransaction(tx.serialize(), {
       skipPreflight: false,
       maxRetries: 3,
     });
 
     console.log(`[LAUNCHER] Transaction sent: ${signature}`);
 
-    // Step 3: Confirm
+    // Confirm
     const confirmation = await connection.confirmTransaction(signature, 'confirmed');
-
     if (confirmation.value.err) {
       throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
     }
 
-    const tokenAddress = data.mint || data.tokenAddress || 'unknown';
-    console.log(`[LAUNCHER] Token launched! Address: ${tokenAddress}`);
-    console.log(`[LAUNCHER] Signature: ${signature}`);
+    const mintAddress = mintKeypair.publicKey.toBase58();
+    console.log(`[LAUNCHER] Token launched! Mint: ${mintAddress}`);
 
-    // Log success
-    logLaunch(tokenAddress, name, symbol, 'launched', {
-      signature,
-      initialBuySOL,
-      feeRecipient: TREASURY_PUBLIC,
-    });
+    // Save to database
+    const db = getDb();
+    try {
+      db.prepare(`
+        INSERT INTO treasury (type, amount, currency, description, investment_target)
+        VALUES ('token_launch', 0, 'SOL', ?, ?)
+      `).run(
+        `pump.fun launch: ${name} ($${symbol})`,
+        JSON.stringify({
+          mint: mintAddress,
+          name,
+          symbol,
+          signature,
+          platform: 'pump.fun',
+          creator: TREASURY_PUBLIC,
+          initialBuySOL,
+          timestamp: new Date().toISOString(),
+        })
+      );
+    } finally {
+      db.close();
+    }
 
     return {
       success: true,
-      tokenAddress,
+      mint: mintAddress,
       signature,
       name,
       symbol,
+      pumpfun: `https://pump.fun/coin/${mintAddress}`,
       explorer: `https://solscan.io/tx/${signature}`,
-      bags: `https://bags.fm/token/${tokenAddress}`,
     };
   } catch (error) {
     console.error('[LAUNCHER] Launch failed:', error.message);
-    logLaunch('failed', name, symbol, 'failed', { error: error.message });
-    return {
-      success: false,
-      error: error.message,
-    };
+
+    const db = getDb();
+    try {
+      db.prepare("INSERT INTO treasury (type, amount, currency, description) VALUES ('token_launch', 0, 'SOL', ?)")
+        .run(`FAILED launch: ${name} ($${symbol}) — ${error.message}`);
+    } finally {
+      db.close();
+    }
+
+    return { success: false, error: error.message };
   }
 }
 
-export function getLaunchHistory() {
+/**
+ * Get all tokens MARK has launched
+ */
+export function getLaunchedTokens() {
   const db = getDb();
   try {
-    return db.prepare(
-      "SELECT * FROM treasury WHERE type = 'token_launch' ORDER BY timestamp DESC LIMIT 20"
+    const launches = db.prepare(
+      "SELECT * FROM treasury WHERE type = 'token_launch' AND description NOT LIKE 'FAILED%' ORDER BY timestamp DESC"
     ).all();
+
+    return launches.map(l => {
+      try {
+        return { ...l, details: JSON.parse(l.investment_target) };
+      } catch {
+        return l;
+      }
+    });
   } finally {
     db.close();
   }
