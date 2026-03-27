@@ -165,9 +165,7 @@ cron.schedule('*/15 * * * *', async () => {
       arr.slice(-200).forEach(id => processedDmIds.add(id));
     }
   } catch (error) {
-    if (!error.message.includes('403')) {
-      console.error('[TWITTER] DM check error:', error.message);
-    }
+    console.error('[TWITTER] DM check error:', error.message);
   }
 });
 
