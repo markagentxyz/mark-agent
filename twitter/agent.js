@@ -125,6 +125,62 @@ cron.schedule('0 21 * * *', async () => {
   if (content) await postTweet(content.substring(0, 280));
 });
 
+// === MENTION REPLIES — respond when tagged in tweets ===
+let lastMentionId = null;
+
+// Load last processed mention from DB
+try {
+  const db = getDb();
+  const last = db.prepare("SELECT tweet_id FROM twitter_posts WHERE tweet_id LIKE 'mention_%' ORDER BY posted_at DESC LIMIT 1").get();
+  if (last) lastMentionId = last.tweet_id.replace('mention_', '');
+  db.close();
+} catch {}
+
+cron.schedule('*/5 * * * *', async () => {
+  try {
+    if (!myUserId) myUserId = (await client.v2.me()).data.id;
+
+    const params = { max_results: 10, 'tweet.fields': ['author_id', 'text', 'created_at'] };
+    if (lastMentionId) params.since_id = lastMentionId;
+
+    const mentions = await client.v2.userMentionTimeline(myUserId, params);
+    if (!mentions.data?.data) return;
+
+    for (const mention of mentions.data.data) {
+      // Track to avoid duplicates
+      const db = getDb();
+      try {
+        const exists = db.prepare("SELECT 1 FROM twitter_posts WHERE tweet_id = ?").get(`mention_${mention.id}`);
+        if (exists) continue;
+        db.prepare("INSERT INTO twitter_posts (content, tweet_id) VALUES (?, ?)").run(`Reply to mention: ${mention.text?.substring(0, 80)}`, `mention_${mention.id}`);
+      } finally {
+        db.close();
+      }
+
+      lastMentionId = mention.id;
+      if (mention.author_id === myUserId) continue;
+
+      console.log(`[TWITTER] Mention from ${mention.author_id}: ${mention.text?.substring(0, 60)}...`);
+
+      const { chat: chatFn } = await import('../core/brain.js');
+      const response = await chatFn(mention.text, {
+        channel: 'twitter_dm',
+        userId: mention.author_id,
+        username: mention.author_id,
+      });
+
+      try {
+        await rwClient.v2.reply(response.substring(0, 280), mention.id);
+        console.log(`[TWITTER] Replied to mention ${mention.id}`);
+      } catch (replyErr) {
+        console.error('[TWITTER] Reply error:', replyErr.message);
+      }
+    }
+  } catch (error) {
+    console.error('[TWITTER] Mention check error:', error.message);
+  }
+});
+
 // === REACTIVE DMs — persist processed IDs in DB to survive restarts ===
 let myUserId = null;
 
