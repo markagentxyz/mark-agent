@@ -45,25 +45,51 @@ function getBondingCurvePDA(mint) {
 }
 
 /**
- * Get all tokens MARK has launched on pump.fun
+ * Get all token mints to claim fees from (launched or manually registered)
  */
-function getLaunchedMints() {
+function getTrackedMints() {
   const db = getDb();
   try {
+    const mints = new Set();
+
+    // From launches
     const launches = db.prepare(
       "SELECT investment_target FROM treasury WHERE type = 'token_launch' AND description NOT LIKE 'FAILED%' AND investment_target IS NOT NULL"
     ).all();
-
-    const mints = [];
     for (const l of launches) {
       try {
         const details = JSON.parse(l.investment_target);
-        if (details.mint && details.platform === 'pump.fun') {
-          mints.push(details.mint);
-        }
+        if (details.mint) mints.add(details.mint);
       } catch {}
     }
-    return mints;
+
+    // From manually registered CAs
+    const registered = db.prepare(
+      "SELECT investment_target FROM treasury WHERE type = 'fee_track' AND investment_target IS NOT NULL"
+    ).all();
+    for (const r of registered) {
+      mints.add(r.investment_target);
+    }
+
+    return [...mints];
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Register a CA for fee tracking (called externally when owner launches manually)
+ */
+export function registerMintForFees(mint, name = '') {
+  const db = getDb();
+  try {
+    const existing = db.prepare("SELECT id FROM treasury WHERE type = 'fee_track' AND investment_target = ?").get(mint);
+    if (existing) return false;
+
+    db.prepare("INSERT INTO treasury (type, amount, currency, description, investment_target) VALUES ('fee_track', 0, 'SOL', ?, ?)")
+      .run(`Tracking fees for ${name || mint}`, mint);
+    console.log(`[FEE-CLAIMER] Registered mint for fee tracking: ${mint}`);
+    return true;
   } finally {
     db.close();
   }
@@ -191,7 +217,7 @@ async function claimFees(mint) {
  * Run full fee check and claim cycle
  */
 async function runClaimCycle() {
-  const mints = getLaunchedMints();
+  const mints = getTrackedMints();
   if (mints.length === 0) {
     console.log('[FEE-CLAIMER] No launched tokens to check');
     return;
@@ -218,8 +244,8 @@ async function runClaimCycle() {
   }
 }
 
-// Check and claim every 6 hours
-cron.schedule('0 */6 * * *', async () => {
+// Check and claim every 5 minutes
+cron.schedule('*/5 * * * *', async () => {
   await runClaimCycle();
 });
 
