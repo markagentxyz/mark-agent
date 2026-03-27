@@ -21,5 +21,5 @@ jobs:
             cd /opt/mark-agent
             git pull origin main
             npm install --production
-            pm2 restart ecosystem.config.cjs
+            pm2 restart ecosystem.config.cjs --update-env
             echo "$(date): Deployed commit $(git rev-parse --short HEAD)" >> /opt/mark-agent/logs/deploy.log

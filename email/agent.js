@@ -7,11 +7,15 @@ import { getDb } from '../database/init.js';
 import dotenv from 'dotenv';
 dotenv.config({ path: new URL('../.env', import.meta.url).pathname });
 
+const gmailPassword = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, ' ').trim();
+
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'smtp.gmail.com',
+  port: 465,
+  secure: true,
   auth: {
     user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_APP_PASSWORD,
+    pass: gmailPassword,
   },
 });
 
@@ -55,13 +59,17 @@ export async function sendOnboardingEmail(clientEmail, clientName) {
 }
 
 function checkInbox() {
+  const password = (process.env.GMAIL_APP_PASSWORD || '').replace(/\s+/g, ' ').trim();
   const imap = new Imap({
     user: process.env.GMAIL_USER,
-    password: process.env.GMAIL_APP_PASSWORD,
+    password: password,
     host: 'imap.gmail.com',
     port: 993,
     tls: true,
-    tlsOptions: { rejectUnauthorized: false },
+    tlsOptions: { rejectUnauthorized: false, servername: 'imap.gmail.com' },
+    authTimeout: 30000,
+    connTimeout: 30000,
+    keepalive: { interval: 10000, idleInterval: 300000, forceNoop: true },
   });
 
   imap.once('ready', () => {
