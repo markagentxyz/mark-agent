@@ -127,23 +127,32 @@ cron.schedule('0 21 * * *', async () => {
 });
 
 // === REACTIVE DMs ===
-cron.schedule('*/15 * * * *', async () => {
+let myUserId = null;
+
+cron.schedule('*/5 * * * *', async () => {
   try {
     const { chat } = await import('../core/brain.js');
-    const dms = await client.v2.listDmEvents({ event_types: 'MessageCreate', max_results: 10 });
-    if (!dms.data?.data) return;
 
-    const myId = (await client.v2.me()).data.id;
+    if (!myUserId) {
+      myUserId = (await client.v2.me()).data.id;
+    }
+
+    const dms = await client.v2.listDmEvents({
+      event_types: 'MessageCreate',
+      max_results: 10,
+      'dm_event.fields': 'dm_conversation_id,sender_id',
+    });
+    if (!dms.data?.data) return;
 
     for (const dm of dms.data.data) {
       if (processedDmIds.has(dm.id)) continue;
       processedDmIds.add(dm.id);
-      if (dm.sender_id === myId) continue;
+      if (dm.sender_id === myUserId) continue;
 
       const text = dm.text || '';
       if (!text.trim()) continue;
 
-      console.log(`[TWITTER] DM from ${dm.sender_id}: ${text.substring(0, 50)}...`);
+      console.log(`[TWITTER] DM from ${dm.sender_id}: ${text.substring(0, 60)}...`);
 
       const response = await chat(text, {
         channel: 'twitter_dm',
@@ -152,7 +161,7 @@ cron.schedule('*/15 * * * *', async () => {
       });
 
       try {
-        await client.v2.sendDmInConversation(dm.dm_conversation_id, { text: response.substring(0, 10000) });
+        await client.v2.sendDmToParticipant(dm.sender_id, { text: response.substring(0, 10000) });
         console.log(`[TWITTER] DM reply sent to ${dm.sender_id}`);
       } catch (dmError) {
         console.error('[TWITTER] DM reply error:', dmError.message);
