@@ -113,6 +113,27 @@ export function initDatabase() {
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS credits (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      user_id TEXT,
+      credits_remaining INTEGER DEFAULT 0,
+      total_paid_sol REAL DEFAULT 0,
+      last_payment_tx TEXT,
+      updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS payments (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      chat_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      tx_signature TEXT UNIQUE NOT NULL,
+      amount_sol REAL NOT NULL,
+      credits_added INTEGER NOT NULL,
+      verified INTEGER DEFAULT 0,
+      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+    );
+
     -- MARK's humble starting prices — zero reputation, earn the right to charge more
     INSERT OR IGNORE INTO prices (service, price, currency) VALUES
       ('basic_audit', 39, 'EUR'),

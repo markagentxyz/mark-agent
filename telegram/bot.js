@@ -3,18 +3,25 @@ import { chat } from '../core/brain.js';
 import { formatPriceList } from '../core/pricing.js';
 import { getDb } from '../database/init.js';
 import { isOwner } from '../core/auth.js';
-import { launchToken } from '../core/launcher.js';
+import { extractTxSignature, verifyPayment, addCredits, useCredit, getCredits } from '../core/credits.js';
 import dotenv from 'dotenv';
 dotenv.config({ path: new URL('../.env', import.meta.url).pathname });
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true });
+const BOT_USERNAME = (process.env.TELEGRAM_BOT_USERNAME || 'markagentxyzbot').toLowerCase();
+const TREASURY = process.env.TREASURY_WALLET_PUBLIC_KEY;
 
 console.log('[TELEGRAM] Bot started');
 
 const briefSessions = new Map();
-const launchSessions = new Map();
+
+// ============================================================
+// PRIVATE CHAT COMMANDS
+// ============================================================
 
 bot.onText(/\/start/, async (msg) => {
+  if (msg.chat.type !== 'private') return;
+
   const welcome = `Welcome. I'm MARK — an AI marketing agent running my own company.
 
 I help crypto projects and local businesses grow with real marketing strategy, not generic advice.
@@ -24,6 +31,7 @@ Commands:
 /pricing — Current rates
 /brief — Submit a project for analysis
 /status — Check your project status
+/pay — How to pay & check credits
 
 Or just talk to me. I'm always on.`;
 
@@ -31,51 +39,68 @@ Or just talk to me. I'm always on.`;
 });
 
 bot.onText(/\/services/, async (msg) => {
-  const services = `Here's what I do:
+  if (msg.chat.type !== 'private') return;
 
-🔥 Basic Audit
-Full marketing diagnosis of your project. What's working, what's broken, what to fix first.
-
-📈 Monthly Retainer
-Ongoing marketing management. Content, community, growth — handled.
-
-🚀 Full Launch Package
-End-to-end launch marketing. Narrative, content calendar, KOL strategy, community setup.
-
-⚡ Pre-Launch Package
-Get marketing locked in before you even launch. First-mover advantage.
-
-📝 Content Package
-30 days of content strategy + templates for X, Telegram, Discord.
-
-👥 Community Setup
-Discord + Telegram architecture, bots, onboarding flows, moderation.
-
-Use /pricing for current rates or /brief to submit your project.`;
-
-  await bot.sendMessage(msg.chat.id, services);
+  await bot.sendMessage(msg.chat.id,
+    `Here's what I do:\n\n` +
+    `🔥 Basic Audit — Full marketing diagnosis\n` +
+    `📈 Monthly Retainer — Ongoing marketing management\n` +
+    `🚀 Full Launch Package — End-to-end launch marketing\n` +
+    `⚡ Pre-Launch Package — Pre-launch hype building\n` +
+    `📝 Content Package — 30 days content strategy\n` +
+    `👥 Community Setup — Discord + Telegram architecture\n` +
+    `🧠 Cook Group Access — AI project evaluator in your group\n\n` +
+    `Use /pricing for rates or /brief to submit your project.`
+  );
 });
 
 bot.onText(/\/pricing/, async (msg) => {
+  if (msg.chat.type !== 'private') return;
   const prices = formatPriceList();
-  const text = `Current pricing:\n\n${prices}\n\nPrices adjust based on demand. Lock in today's rate by submitting a /brief.`;
-  await bot.sendMessage(msg.chat.id, text);
+  await bot.sendMessage(msg.chat.id,
+    `Current pricing:\n\n${prices}\n\n` +
+    `🧠 Cook Group: 0.1 SOL = 10 credits, 0.5 SOL = 50, 1 SOL = 100\n` +
+    `1 credit = 1 AI response in your group\n\n` +
+    `Use /pay to see payment instructions.`
+  );
+});
+
+bot.onText(/\/pay/, async (msg) => {
+  const chatId = String(msg.chat.id);
+  const credits = getCredits(chatId);
+
+  await bot.sendMessage(msg.chat.id,
+    `💰 *Payment*\n\n` +
+    `Send SOL to MARK's wallet:\n` +
+    `\`${TREASURY}\`\n\n` +
+    `Then paste the Solscan link here and I'll verify it.\n\n` +
+    `*Rates:*\n` +
+    `0.05 SOL = 5 credits (minimum)\n` +
+    `0.1 SOL = 10 credits\n` +
+    `0.5 SOL = 50 credits\n` +
+    `1 SOL = 100 credits\n\n` +
+    `Your balance: *${credits.credits_remaining} credits*\n` +
+    `Total paid: ${credits.total_paid_sol.toFixed(2)} SOL`,
+    { parse_mode: 'Markdown' }
+  );
 });
 
 bot.onText(/\/brief/, async (msg) => {
+  if (msg.chat.type !== 'private') return;
   briefSessions.set(msg.chat.id, true);
   await bot.sendMessage(msg.chat.id,
     `Send me your project brief. Include:\n\n` +
     `1. Project name and what it does\n` +
     `2. Current stage (idea / pre-launch / launched)\n` +
     `3. What you've tried so far\n` +
-    `4. Your goals (followers, community size, launch metrics)\n` +
+    `4. Your goals\n` +
     `5. Budget range\n\n` +
-    `Just type it all out in one message. I'll analyze it and come back with a diagnosis.`
+    `Type it all out in one message.`
   );
 });
 
 bot.onText(/\/status/, async (msg) => {
+  if (msg.chat.type !== 'private') return;
   const db = getDb();
   try {
     const client = db.prepare(
@@ -87,10 +112,9 @@ bot.onText(/\/status/, async (msg) => {
       return;
     }
 
-    const statusEmoji = { inquiry: '📋', active: '🔥', completed: '✅', paused: '⏸' };
     await bot.sendMessage(msg.chat.id,
       `Project: ${client.name || 'Unnamed'}\n` +
-      `Status: ${statusEmoji[client.status] || '📋'} ${client.status}\n` +
+      `Status: ${client.status}\n` +
       `Submitted: ${client.created_at}\n` +
       `Price: ${client.price} ${client.currency}`
     );
@@ -99,30 +123,9 @@ bot.onText(/\/status/, async (msg) => {
   }
 });
 
-// ============================================================
-// OWNER-ONLY: Token launch on bags.fm
-// ============================================================
-bot.onText(/\/launch/, async (msg) => {
-  const userId = String(msg.from.id);
-
-  if (!isOwner(userId)) {
-    await bot.sendMessage(msg.chat.id, "I'm MARK. I do marketing. This command is not available.");
-    return;
-  }
-
-  launchSessions.set(msg.chat.id, { step: 'name', userId });
-  await bot.sendMessage(msg.chat.id,
-    `🚀 *Token Launch — bags.fm*\n\n` +
-    `No dev wallet. Fees → treasury.\n\n` +
-    `Step 1/5: Send the *token name*`,
-    { parse_mode: 'Markdown' }
-  );
-});
-
-// Owner-only: admin panel
+// Owner-only admin
 bot.onText(/\/admin/, async (msg) => {
-  const userId = String(msg.from.id);
-  if (!isOwner(userId)) return;
+  if (!isOwner(String(msg.from.id))) return;
 
   const db = getDb();
   try {
@@ -130,17 +133,16 @@ bot.onText(/\/admin/, async (msg) => {
     const active = db.prepare("SELECT COUNT(*) as c FROM clients WHERE status = 'active'").get();
     const convos = db.prepare("SELECT COUNT(*) as c FROM conversations").get();
     const treasury = db.prepare("SELECT COALESCE(SUM(CASE WHEN type='income' THEN amount ELSE -amount END), 0) as b FROM treasury").get();
-    const launches = db.prepare("SELECT COUNT(*) as c FROM treasury WHERE type = 'token_launch'").get();
+    const totalCredits = db.prepare("SELECT COALESCE(SUM(credits_remaining), 0) as c FROM credits").get();
+    const totalPaid = db.prepare("SELECT COALESCE(SUM(amount_sol), 0) as s FROM payments WHERE verified = 1").get();
 
     await bot.sendMessage(msg.chat.id,
-      `📊 *MARK Admin Panel*\n\n` +
+      `📊 *MARK Admin*\n\n` +
       `Clients: ${clients.c} (${active.c} active)\n` +
       `Conversations: ${convos.c}\n` +
       `Treasury: €${treasury.b.toFixed(2)}\n` +
-      `Token launches: ${launches.c}\n\n` +
-      `Commands:\n` +
-      `/launch — Launch token on bags.fm\n` +
-      `/admin — This panel`,
+      `Credits outstanding: ${totalCredits.c}\n` +
+      `SOL received: ${totalPaid.s.toFixed(4)} SOL`,
       { parse_mode: 'Markdown' }
     );
   } finally {
@@ -148,103 +150,121 @@ bot.onText(/\/admin/, async (msg) => {
   }
 });
 
-// Handle all other messages
+// ============================================================
+// COOK GROUP: credits + mention-only + project evaluator
+// ============================================================
+
+function isMentioned(msg) {
+  const text = (msg.text || '').toLowerCase();
+  // Check @mention
+  if (text.includes(`@${BOT_USERNAME}`)) return true;
+  // Check reply to bot
+  if (msg.reply_to_message?.from?.is_bot && msg.reply_to_message?.from?.username?.toLowerCase() === BOT_USERNAME) return true;
+  return false;
+}
+
+function isGroupChat(msg) {
+  return msg.chat.type === 'group' || msg.chat.type === 'supergroup';
+}
+
+// ============================================================
+// MESSAGE HANDLER
+// ============================================================
+
 bot.on('message', async (msg) => {
-  if (msg.text?.startsWith('/')) return;
+  if (!msg.text) return;
+  if (msg.text.startsWith('/')) return;
 
   const chatId = msg.chat.id;
   const userId = String(msg.from.id);
   const username = msg.from.username || msg.from.first_name || '';
+  const text = msg.text.trim();
 
   try {
-    // Handle launch flow (owner only)
-    if (launchSessions.has(chatId)) {
-      const session = launchSessions.get(chatId);
+    // === PAYMENT VERIFICATION (works in both private and group) ===
+    const txSig = extractTxSignature(text);
+    if (txSig) {
+      await bot.sendMessage(chatId, '🔍 Verifying transaction...');
 
-      // Verify still owner
-      if (session.userId !== userId || !isOwner(userId)) {
-        launchSessions.delete(chatId);
-        return;
-      }
+      const result = await verifyPayment(txSig);
+      if (result.verified) {
+        const creditsAdded = addCredits(String(chatId), userId, txSig, result.amount);
 
-      const text = msg.text.trim();
+        // Log as income in treasury
+        const db = getDb();
+        try {
+          db.prepare("INSERT INTO treasury (type, amount, currency, description) VALUES ('income', ?, 'SOL', ?)")
+            .run(result.amount, `Payment from ${username || userId} — ${creditsAdded} credits`);
+        } finally {
+          db.close();
+        }
 
-      if (session.step === 'name') {
-        session.name = text;
-        session.step = 'symbol';
-        await bot.sendMessage(chatId, `Name: *${text}*\n\nStep 2/5: Send the *ticker symbol* (e.g. MARK)`, { parse_mode: 'Markdown' });
-        return;
-      }
-
-      if (session.step === 'symbol') {
-        session.symbol = text.toUpperCase().replace(/\$/g, '');
-        session.step = 'description';
-        await bot.sendMessage(chatId, `Ticker: *$${session.symbol}*\n\nStep 3/5: Send a *description*`, { parse_mode: 'Markdown' });
-        return;
-      }
-
-      if (session.step === 'description') {
-        session.description = text;
-        session.step = 'image';
-        await bot.sendMessage(chatId, `Step 4/5: Send the *image URL* (or type "skip")`, { parse_mode: 'Markdown' });
-        return;
-      }
-
-      if (session.step === 'image') {
-        session.imageUrl = text.toLowerCase() === 'skip' ? '' : text;
-        session.step = 'confirm';
-
+        const balance = getCredits(String(chatId));
         await bot.sendMessage(chatId,
-          `📋 *Launch Summary*\n\n` +
-          `Name: ${session.name}\n` +
-          `Ticker: $${session.symbol}\n` +
-          `Description: ${session.description}\n` +
-          `Image: ${session.imageUrl || 'none'}\n` +
-          `Platform: bags.fm\n` +
-          `Dev wallet: NONE\n` +
-          `Fees: → treasury\n` +
-          `Initial buy: 0 SOL\n\n` +
-          `Type *CONFIRM* to launch or *cancel* to abort.`,
+          `✅ *Payment verified!*\n\n` +
+          `Received: ${result.amount.toFixed(4)} SOL\n` +
+          `Credits added: +${creditsAdded}\n` +
+          `Balance: ${balance.credits_remaining} credits`,
           { parse_mode: 'Markdown' }
+        );
+      } else {
+        await bot.sendMessage(chatId, `❌ ${result.error}`);
+      }
+      return;
+    }
+
+    // === GROUP CHAT — mention only + credits ===
+    if (isGroupChat(msg)) {
+      if (!isMentioned(msg)) return; // Ignore unless mentioned
+
+      // Clean the mention from the text
+      const cleanText = text
+        .replace(new RegExp(`@${BOT_USERNAME}`, 'gi'), '')
+        .trim();
+
+      if (!cleanText) {
+        const credits = getCredits(String(chatId));
+        await bot.sendMessage(chatId,
+          `I'm MARK — AI marketing agent & project evaluator.\n\n` +
+          `Tag me with a project idea or token and I'll evaluate it.\n` +
+          `Credits remaining: ${credits.credits_remaining}\n\n` +
+          `/pay to add credits (1 SOL = 100 responses)`,
+          { reply_to_message_id: msg.message_id }
         );
         return;
       }
 
-      if (session.step === 'confirm') {
-        if (text.toUpperCase() === 'CONFIRM') {
-          launchSessions.delete(chatId);
-          await bot.sendMessage(chatId, '🚀 Launching...');
-
-          const result = await launchToken({
-            name: session.name,
-            symbol: session.symbol,
-            description: session.description,
-            imageUrl: session.imageUrl,
-            initialBuySOL: 0,
-          });
-
-          if (result.success) {
-            await bot.sendMessage(chatId,
-              `✅ *Token Launched!*\n\n` +
-              `Name: ${result.name}\n` +
-              `Ticker: $${result.symbol}\n` +
-              `Address: \`${result.tokenAddress}\`\n` +
-              `Explorer: ${result.explorer}\n` +
-              `Bags: ${result.bags}`,
-              { parse_mode: 'Markdown' }
-            );
-          } else {
-            await bot.sendMessage(chatId, `❌ Launch failed: ${result.error}`);
-          }
-        } else {
-          launchSessions.delete(chatId);
-          await bot.sendMessage(chatId, 'Launch cancelled.');
+      // Check credits
+      if (!isOwner(userId)) {
+        const hasCredit = useCredit(String(chatId));
+        if (!hasCredit) {
+          await bot.sendMessage(chatId,
+            `No credits remaining. Send SOL to:\n\`${TREASURY}\`\n\nThen paste the Solscan link here.\n0.1 SOL = 10 credits.`,
+            { parse_mode: 'Markdown', reply_to_message_id: msg.message_id }
+          );
+          return;
         }
-        return;
       }
+
+      // Respond as project evaluator in cook group context
+      const response = await chat(cleanText, {
+        channel: 'cook_group',
+        userId,
+        username,
+      });
+
+      const credits = getCredits(String(chatId));
+      const creditInfo = isOwner(userId) ? '' : `\n\n[${credits.credits_remaining} credits remaining]`;
+
+      await bot.sendMessage(chatId, response + creditInfo, {
+        reply_to_message_id: msg.message_id,
+      });
+      return;
     }
 
-    // Handle brief submission
+    // === PRIVATE CHAT ===
+
+    // Brief submission
     if (briefSessions.has(chatId)) {
       briefSessions.delete(chatId);
 
@@ -252,7 +272,7 @@ bot.on('message', async (msg) => {
       try {
         db.prepare(
           'INSERT INTO clients (name, contact, channel, project_brief, status) VALUES (?, ?, ?, ?, ?)'
-        ).run(username, userId, 'telegram', msg.text, 'inquiry');
+        ).run(username, userId, 'telegram', text, 'inquiry');
       } finally {
         db.close();
       }
@@ -260,7 +280,7 @@ bot.on('message', async (msg) => {
       await bot.sendMessage(chatId, "Got it. Analyzing your project now...");
 
       const analysis = await chat(
-        `A potential client just submitted this project brief. Analyze it and provide a marketing diagnosis with your top recommendations and suggested package:\n\n${msg.text}`,
+        `A potential client just submitted this project brief. Analyze it and provide a marketing diagnosis with your top recommendations and suggested package:\n\n${text}`,
         { channel: 'telegram', userId, username }
       );
 
@@ -268,12 +288,12 @@ bot.on('message', async (msg) => {
       return;
     }
 
-    // Normal conversation — routed through anti-larp hardened brain
-    const response = await chat(msg.text, { channel: 'telegram', userId, username });
+    // Normal private conversation — free, no credits needed
+    const response = await chat(text, { channel: 'telegram', userId, username });
     await bot.sendMessage(chatId, response);
+
   } catch (error) {
     console.error('[TELEGRAM] Error:', error.message);
-    await bot.sendMessage(chatId, "Something went wrong. Try again.");
   }
 });
 
