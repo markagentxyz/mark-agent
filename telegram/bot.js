@@ -3,7 +3,8 @@ import { chat } from '../core/brain.js';
 import { formatPriceList } from '../core/pricing.js';
 import { getDb } from '../database/init.js';
 import { isOwner } from '../core/auth.js';
-import { extractTxSignature, verifyPayment, addCredits, useCredit, getCredits } from '../core/credits.js';
+import { useCredit, getCredits } from '../core/credits.js';
+import { getDepositWallet } from '../core/deposits.js';
 import dotenv from 'dotenv';
 dotenv.config({ path: new URL('../.env', import.meta.url).pathname });
 
@@ -66,20 +67,31 @@ bot.onText(/\/pricing/, async (msg) => {
 });
 
 bot.onText(/\/pay/, async (msg) => {
-  const chatId = String(msg.chat.id);
-  const credits = getCredits(chatId);
+  const userId = String(msg.from.id);
+  const username = msg.from.username || msg.from.first_name || '';
+
+  // In groups, use admin's account
+  let creditOwner = userId;
+  if (isGroupChat(msg)) {
+    const adminId = await getGroupAdmin(msg.chat.id);
+    if (adminId) creditOwner = adminId;
+  }
+
+  const depositAddr = getDepositWallet(creditOwner, 'telegram', username);
+  const credits = getCredits(creditOwner);
 
   await bot.sendMessage(msg.chat.id,
-    `💰 *Payment*\n\n` +
-    `Send SOL to MARK's wallet:\n` +
-    `\`${TREASURY}\`\n\n` +
-    `Then paste the Solscan link here and I'll verify it.\n\n` +
+    `💰 *Your Deposit Wallet*\n\n` +
+    `Send SOL here:\n` +
+    `\`${depositAddr}\`\n\n` +
+    `Credits are added *automatically* when payment arrives.\n` +
+    `No need to send links — I detect it myself.\n\n` +
     `*Rates:*\n` +
-    `0.05 SOL = 5 credits (minimum)\n` +
+    `0.05 SOL = 5 credits\n` +
     `0.1 SOL = 10 credits\n` +
     `0.5 SOL = 50 credits\n` +
     `1 SOL = 100 credits\n\n` +
-    `Your balance: *${credits.credits_remaining} credits*\n` +
+    `Balance: *${credits.credits_remaining} credits*\n` +
     `Total paid: ${credits.total_paid_sol.toFixed(2)} SOL`,
     { parse_mode: 'Markdown' }
   );
@@ -208,43 +220,8 @@ bot.on('message', async (msg) => {
   const text = msg.text.trim();
 
   try {
-    // === PAYMENT VERIFICATION (works in both private and group) ===
-    const txSig = extractTxSignature(text);
-    if (txSig) {
-      await bot.sendMessage(chatId, '🔍 Verifying transaction...');
-
-      const result = await verifyPayment(txSig);
-      if (result.verified) {
-        // In groups: credits go to admin. In private: credits go to user.
-        let creditOwner = userId;
-        if (isGroupChat(msg)) {
-          const adminId = await getGroupAdmin(chatId);
-          if (adminId) creditOwner = adminId;
-        }
-
-        const creditsAdded = addCredits(creditOwner, userId, txSig, result.amount);
-
-        const db = getDb();
-        try {
-          db.prepare("INSERT INTO treasury (type, amount, currency, description) VALUES ('income', ?, 'SOL', ?)")
-            .run(result.amount, `Payment from ${username || userId} — ${creditsAdded} credits`);
-        } finally {
-          db.close();
-        }
-
-        const balance = getCredits(creditOwner);
-        await bot.sendMessage(chatId,
-          `✅ *Payment verified!*\n\n` +
-          `Received: ${result.amount.toFixed(4)} SOL\n` +
-          `Credits added: +${creditsAdded}\n` +
-          `Balance: ${balance.credits_remaining} credits`,
-          { parse_mode: 'Markdown' }
-        );
-      } else {
-        await bot.sendMessage(chatId, `❌ ${result.error}`);
-      }
-      return;
-    }
+    // Payments are now auto-detected via deposit wallets (deposit-monitor.js)
+    // No need for manual Solscan link verification
 
     // === GROUP CHAT — mention only + admin credits ===
     if (isGroupChat(msg)) {
@@ -275,9 +252,9 @@ bot.on('message', async (msg) => {
         const creditOwner = adminId || String(chatId);
         const hasCredit = useCredit(creditOwner);
         if (!hasCredit) {
-          // Always respond — no AI call, just static recharge message
+          const depositAddr = getDepositWallet(creditOwner, 'telegram', '');
           await bot.sendMessage(chatId,
-            `No credits remaining. Recharge to keep using MARK.\n\nSend SOL to:\n\`${TREASURY}\`\n\nPaste the Solscan TX link here to verify.\n0.1 SOL = 10 responses | 1 SOL = 100 responses\n\nmark-agent.xyz`,
+            `No credits. Send SOL to recharge:\n\`${depositAddr}\`\n\nCredits added automatically.\n0.1 SOL = 10 | 1 SOL = 100`,
             { parse_mode: 'Markdown', reply_to_message_id: msg.message_id }
           );
           return;
