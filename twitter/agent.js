@@ -18,7 +18,6 @@ const client = new TwitterApi({
 });
 
 const rwClient = client.readWrite;
-const processedDmIds = new Set();
 
 console.log('[TWITTER] Agent started — organic posts + reactive DMs');
 
@@ -126,8 +125,27 @@ cron.schedule('0 21 * * *', async () => {
   if (content) await postTweet(content.substring(0, 280));
 });
 
-// === REACTIVE DMs ===
+// === REACTIVE DMs — persist processed IDs in DB to survive restarts ===
 let myUserId = null;
+
+function isDmProcessed(dmId) {
+  const db = getDb();
+  try {
+    return !!db.prepare('SELECT 1 FROM twitter_posts WHERE tweet_id = ?').get(`dm_${dmId}`);
+  } finally {
+    db.close();
+  }
+}
+
+function markDmProcessed(dmId, senderId, text) {
+  const db = getDb();
+  try {
+    db.prepare('INSERT OR IGNORE INTO twitter_posts (content, tweet_id) VALUES (?, ?)')
+      .run(`DM reply to ${senderId}: ${text.substring(0, 100)}`, `dm_${dmId}`);
+  } finally {
+    db.close();
+  }
+}
 
 cron.schedule('*/5 * * * *', async () => {
   try {
@@ -145,12 +163,16 @@ cron.schedule('*/5 * * * *', async () => {
     if (!dms.data?.data) return;
 
     for (const dm of dms.data.data) {
-      if (processedDmIds.has(dm.id)) continue;
-      processedDmIds.add(dm.id);
+      // Skip already processed (persisted in DB)
+      if (isDmProcessed(dm.id)) continue;
+      // Skip own messages
       if (dm.sender_id === myUserId) continue;
 
       const text = dm.text || '';
       if (!text.trim()) continue;
+
+      // Mark as processed BEFORE responding to prevent duplicates on crash
+      markDmProcessed(dm.id, dm.sender_id, text);
 
       console.log(`[TWITTER] DM from ${dm.sender_id}: ${text.substring(0, 60)}...`);
 
@@ -166,12 +188,6 @@ cron.schedule('*/5 * * * *', async () => {
       } catch (dmError) {
         console.error('[TWITTER] DM reply error:', dmError.message);
       }
-    }
-
-    if (processedDmIds.size > 500) {
-      const arr = [...processedDmIds];
-      processedDmIds.clear();
-      arr.slice(-200).forEach(id => processedDmIds.add(id));
     }
   } catch (error) {
     console.error('[TWITTER] DM check error:', error.message);
