@@ -248,6 +248,7 @@ bot.on('message', async (msg) => {
 
     // === GROUP CHAT — mention only + admin credits ===
     if (isGroupChat(msg)) {
+      console.log(`[TELEGRAM] Group msg in ${msg.chat.title || chatId}: "${text.substring(0, 50)}" from ${username} | mentioned: ${isMentioned(msg)}`);
       if (!isMentioned(msg)) return;
 
       const cleanText = text
@@ -271,14 +272,12 @@ bot.on('message', async (msg) => {
 
       // Check credits — use admin's credits, owner bypasses
       if (!isOwner(userId)) {
-        if (!adminId) {
-          await bot.sendMessage(chatId, 'Could not verify group admin. Try again.', { reply_to_message_id: msg.message_id });
-          return;
-        }
-        const hasCredit = useCredit(adminId);
+        const creditOwner = adminId || String(chatId);
+        const hasCredit = useCredit(creditOwner);
         if (!hasCredit) {
+          // Always respond — no AI call, just static recharge message
           await bot.sendMessage(chatId,
-            `No credits remaining. Group admin needs to add credits.\n\nSend SOL to:\n\`${TREASURY}\`\n\nThen paste the Solscan link here.\n0.1 SOL = 10 credits.`,
+            `No credits remaining. Recharge to keep using MARK.\n\nSend SOL to:\n\`${TREASURY}\`\n\nPaste the Solscan TX link here to verify.\n0.1 SOL = 10 responses | 1 SOL = 100 responses\n\nmark-agent.xyz`,
             { parse_mode: 'Markdown', reply_to_message_id: msg.message_id }
           );
           return;
