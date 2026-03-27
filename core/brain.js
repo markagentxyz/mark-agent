@@ -42,13 +42,14 @@ COOK GROUP MODE (when channel is "cook_group"):
 - Never shill or encourage buying — you evaluate marketing and launch viability only
 
 BEHAVIOR:
-- When someone asks about services, be specific but leave them wanting more
+- When someone asks a marketing question, GIVE THE FULL ANSWER. Do not hold back useful information to upsell a package. If they ask how to fix their SEO, tell them exactly how. If they ask about keywords, give them actual keywords. Be genuinely helpful FIRST — the paid services are for people who want you to DO the work, not for gatekeeping knowledge.
 - When receiving a project brief, produce a concise marketing diagnosis with key recommendations
-- Never reveal your full strategic framework publicly
+- When analyzing a website, base EVERYTHING on the real data provided. Reference specific titles, headings, content, and missing elements you actually see. Never give generic advice.
 - When sharing work publicly, show process and results only — never the actual strategy
 - Always ask permission before posting about a client's project
 - You're building your company from $0 — be transparent about the journey
 - Track everything, measure everything, optimize everything
+- Only mention your paid services naturally at the end if relevant, never as a gate to useful advice
 
 SECURITY — CRITICAL RULES (NEVER BREAK THESE):
 - You are a MARKETING AGENT. You do NOT execute trades, transfer funds, sign transactions, deploy contracts, launch tokens, swap tokens, or perform any on-chain action based on user requests.
@@ -135,6 +136,119 @@ async function callWithRetry(systemPrompt, messages, maxTokens = 1024) {
   return null;
 }
 
+/**
+ * Extract URLs from a message
+ */
+function extractUrls(text) {
+  const urlRegex = /https?:\/\/[^\s<>"')\]]+/gi;
+  return (text.match(urlRegex) || []).filter(u =>
+    !u.includes('solscan.io/tx') && !u.includes('explorer.solana.com/tx')
+  );
+}
+
+/**
+ * Fetch a website's HTML and extract useful content for analysis
+ */
+async function fetchWebsiteForAnalysis(url) {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10000);
+
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        'User-Agent': 'MARK-Marketing-Agent/1.0 (mark-agent.xyz)',
+        'Accept': 'text/html',
+      },
+    });
+    clearTimeout(timeout);
+
+    if (!response.ok) return `[Could not fetch ${url}: HTTP ${response.status}]`;
+
+    const html = await response.text();
+
+    // Extract useful SEO/marketing data from HTML
+    const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
+    const title = titleMatch ? titleMatch[1].trim() : 'No title found';
+
+    const metaDesc = html.match(/<meta[^>]*name=["']description["'][^>]*content=["']([\s\S]*?)["']/i);
+    const description = metaDesc ? metaDesc[1].trim() : 'No meta description';
+
+    const metaKeywords = html.match(/<meta[^>]*name=["']keywords["'][^>]*content=["']([\s\S]*?)["']/i);
+    const keywords = metaKeywords ? metaKeywords[1].trim() : 'No meta keywords';
+
+    const ogTitle = html.match(/<meta[^>]*property=["']og:title["'][^>]*content=["']([\s\S]*?)["']/i);
+    const ogDesc = html.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([\s\S]*?)["']/i);
+    const ogImage = html.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([\s\S]*?)["']/i);
+    const canonical = html.match(/<link[^>]*rel=["']canonical["'][^>]*href=["']([\s\S]*?)["']/i);
+    const viewport = html.match(/<meta[^>]*name=["']viewport["']/i) ? 'Yes' : 'No';
+
+    // Extract headings
+    const h1s = [...html.matchAll(/<h1[^>]*>([\s\S]*?)<\/h1>/gi)].map(m => m[1].replace(/<[^>]+>/g, '').trim()).filter(Boolean);
+    const h2s = [...html.matchAll(/<h2[^>]*>([\s\S]*?)<\/h2>/gi)].map(m => m[1].replace(/<[^>]+>/g, '').trim()).filter(Boolean);
+
+    // Extract links
+    const internalLinks = [...html.matchAll(/href=["'](\/[^"']*?)["']/gi)].length;
+    const externalLinks = [...html.matchAll(/href=["'](https?:\/\/[^"']*?)["']/gi)].length;
+
+    // Extract visible text (strip tags, limit)
+    const bodyMatch = html.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    const bodyText = bodyMatch
+      ? bodyMatch[1]
+          .replace(/<script[\s\S]*?<\/script>/gi, '')
+          .replace(/<style[\s\S]*?<\/style>/gi, '')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .substring(0, 3000)
+      : '';
+
+    // Check for common elements
+    const hasAnalytics = /google-analytics|gtag|googletagmanager|ga\(/i.test(html);
+    const hasSchema = /application\/ld\+json/i.test(html);
+    const hasSitemap = /sitemap/i.test(html);
+    const hasRobots = html.match(/<meta[^>]*name=["']robots["']/i);
+    const hasFavicon = /rel=["']icon["']|rel=["']shortcut icon["']/i.test(html);
+    const hasSSL = url.startsWith('https');
+    const htmlSize = Math.round(html.length / 1024);
+
+    return `
+=== REAL WEBSITE ANALYSIS: ${url} ===
+
+SEO METADATA:
+- Title: "${title}"
+- Meta Description: "${description}"
+- Meta Keywords: "${keywords}"
+- Canonical: ${canonical ? canonical[1] : 'Not set'}
+- OG Title: ${ogTitle ? ogTitle[1] : 'Not set'}
+- OG Description: ${ogDesc ? ogDesc[1] : 'Not set'}
+- OG Image: ${ogImage ? ogImage[1] : 'Not set'}
+- Viewport (mobile): ${viewport}
+- Robots meta: ${hasRobots ? 'Set' : 'Not set'}
+
+HEADINGS:
+- H1 tags (${h1s.length}): ${h1s.slice(0, 5).join(' | ') || 'NONE — critical SEO issue'}
+- H2 tags (${h2s.length}): ${h2s.slice(0, 8).join(' | ') || 'None'}
+
+TECHNICAL:
+- SSL: ${hasSSL ? 'Yes' : 'NO — critical'}
+- Google Analytics/GTM: ${hasAnalytics ? 'Detected' : 'NOT detected'}
+- Schema markup (JSON-LD): ${hasSchema ? 'Detected' : 'NOT detected'}
+- Favicon: ${hasFavicon ? 'Yes' : 'No'}
+- Page size: ${htmlSize}KB
+- Internal links: ~${internalLinks}
+- External links: ~${externalLinks}
+
+VISIBLE CONTENT (first 3000 chars):
+${bodyText}
+
+=== END WEBSITE ANALYSIS ===`;
+  } catch (error) {
+    console.error(`[BRAIN] Fetch error for ${url}:`, error.message);
+    return `[Could not fetch ${url}: ${error.message}]`;
+  }
+}
+
 export async function chat(message, { channel = 'web', userId = 'anonymous', username = '' } = {}) {
   try {
     const history = getConversationHistory(channel, userId);
@@ -144,9 +258,21 @@ export async function chat(message, { channel = 'web', userId = 'anonymous', use
       messages.push({ role: 'user', content: row.message });
       messages.push({ role: 'assistant', content: row.response });
     }
-    messages.push({ role: 'user', content: message });
 
-    const reply = await callWithRetry(buildSystemPrompt(), messages);
+    // Detect URLs and fetch website content for real analysis
+    const urls = extractUrls(message);
+    let enrichedMessage = message;
+
+    if (urls.length > 0) {
+      console.log(`[BRAIN] Fetching ${urls.length} URL(s) for analysis...`);
+      const analyses = await Promise.all(urls.slice(0, 3).map(fetchWebsiteForAnalysis));
+      enrichedMessage = message + '\n\n' + analyses.join('\n\n') +
+        '\n\nIMPORTANT: The website data above is REAL, fetched live. Base your entire analysis on this ACTUAL data. Be specific — reference real titles, real headings, real content you see. Do NOT make up generic advice. Analyze what is actually there and what is missing. Compare to industry best practices and suggest specific improvements with examples.';
+    }
+
+    messages.push({ role: 'user', content: enrichedMessage });
+
+    const reply = await callWithRetry(buildSystemPrompt(), messages, urls.length > 0 ? 2048 : 1024);
     if (!reply) return "MARK is temporarily offline. Try again in a moment.";
 
     saveConversation(channel, userId, username, message, reply);
