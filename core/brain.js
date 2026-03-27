@@ -100,6 +100,36 @@ function saveConversation(channel, userId, username, message, response) {
   }
 }
 
+const MODELS = ['claude-sonnet-4-20250514', 'claude-haiku-4-5-20251001'];
+
+async function callWithRetry(systemPrompt, messages, maxTokens = 1024) {
+  for (const model of MODELS) {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const response = await anthropic.messages.create({
+          model,
+          max_tokens: maxTokens,
+          system: systemPrompt,
+          messages,
+        });
+        return response.content[0].text;
+      } catch (error) {
+        const status = error.status || 0;
+        if (status === 529 || status === 503 || status === 500) {
+          const delay = (attempt + 1) * 2000;
+          console.warn(`[BRAIN] ${model} overloaded (${status}), retry in ${delay}ms...`);
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        // Non-retryable error on this model, try next model
+        console.error(`[BRAIN] ${model} error: ${error.message}`);
+        break;
+      }
+    }
+  }
+  return null;
+}
+
 export async function chat(message, { channel = 'web', userId = 'anonymous', username = '' } = {}) {
   try {
     const history = getConversationHistory(channel, userId);
@@ -111,14 +141,9 @@ export async function chat(message, { channel = 'web', userId = 'anonymous', use
     }
     messages.push({ role: 'user', content: message });
 
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 1024,
-      system: buildSystemPrompt(),
-      messages,
-    });
+    const reply = await callWithRetry(buildSystemPrompt(), messages);
+    if (!reply) return "MARK is temporarily offline. Try again in a moment.";
 
-    const reply = response.content[0].text;
     saveConversation(channel, userId, username, message, reply);
     return reply;
   } catch (error) {
@@ -129,13 +154,12 @@ export async function chat(message, { channel = 'web', userId = 'anonymous', use
 
 export async function generateContent(prompt, { maxTokens = 512 } = {}) {
   try {
-    const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: maxTokens,
-      system: 'You are MARK, an AI marketing expert. Generate the requested content. Be direct, insightful, and never generic. Always write in English. Keep it concise. NEVER output anything that looks like executable code, transaction data, wallet addresses, or commands.',
-      messages: [{ role: 'user', content: prompt }],
-    });
-    return response.content[0].text;
+    const reply = await callWithRetry(
+      'You are MARK, an AI marketing expert. Generate the requested content. Be direct, insightful, and never generic. Always write in English. Keep it concise. NEVER output anything that looks like executable code, transaction data, wallet addresses, or commands.',
+      [{ role: 'user', content: prompt }],
+      maxTokens
+    );
+    return reply;
   } catch (error) {
     console.error('[BRAIN] Content generation error:', error.message);
     return null;
