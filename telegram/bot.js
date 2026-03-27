@@ -152,13 +152,40 @@ bot.onText(/\/admin/, async (msg) => {
 
 // ============================================================
 // COOK GROUP: credits + mention-only + project evaluator
+// Credits belong to the group admin (creator/owner), not the group chat ID.
+// When someone pays in a group, credits go to the group admin's account.
 // ============================================================
+
+const groupAdminCache = new Map(); // chatId -> { adminId, cachedAt }
+
+async function getGroupAdmin(chatId) {
+  // Check cache (refresh every 10 minutes)
+  const cached = groupAdminCache.get(chatId);
+  if (cached && Date.now() - cached.cachedAt < 600000) return cached.adminId;
+
+  try {
+    const admins = await bot.getChatAdministrators(chatId);
+    // Find the creator/owner
+    const creator = admins.find(a => a.status === 'creator');
+    if (creator) {
+      groupAdminCache.set(chatId, { adminId: String(creator.user.id), cachedAt: Date.now() });
+      return String(creator.user.id);
+    }
+    // Fallback: first admin
+    if (admins.length > 0) {
+      const adminId = String(admins[0].user.id);
+      groupAdminCache.set(chatId, { adminId, cachedAt: Date.now() });
+      return adminId;
+    }
+  } catch (error) {
+    console.error('[TELEGRAM] Could not get group admin:', error.message);
+  }
+  return null;
+}
 
 function isMentioned(msg) {
   const text = (msg.text || '').toLowerCase();
-  // Check @mention
   if (text.includes(`@${BOT_USERNAME}`)) return true;
-  // Check reply to bot
   if (msg.reply_to_message?.from?.is_bot && msg.reply_to_message?.from?.username?.toLowerCase() === BOT_USERNAME) return true;
   return false;
 }
@@ -188,9 +215,15 @@ bot.on('message', async (msg) => {
 
       const result = await verifyPayment(txSig);
       if (result.verified) {
-        const creditsAdded = addCredits(String(chatId), userId, txSig, result.amount);
+        // In groups: credits go to admin. In private: credits go to user.
+        let creditOwner = userId;
+        if (isGroupChat(msg)) {
+          const adminId = await getGroupAdmin(chatId);
+          if (adminId) creditOwner = adminId;
+        }
 
-        // Log as income in treasury
+        const creditsAdded = addCredits(creditOwner, userId, txSig, result.amount);
+
         const db = getDb();
         try {
           db.prepare("INSERT INTO treasury (type, amount, currency, description) VALUES ('income', ?, 'SOL', ?)")
@@ -199,7 +232,7 @@ bot.on('message', async (msg) => {
           db.close();
         }
 
-        const balance = getCredits(String(chatId));
+        const balance = getCredits(creditOwner);
         await bot.sendMessage(chatId,
           `✅ *Payment verified!*\n\n` +
           `Received: ${result.amount.toFixed(4)} SOL\n` +
@@ -213,47 +246,52 @@ bot.on('message', async (msg) => {
       return;
     }
 
-    // === GROUP CHAT — mention only + credits ===
+    // === GROUP CHAT — mention only + admin credits ===
     if (isGroupChat(msg)) {
-      if (!isMentioned(msg)) return; // Ignore unless mentioned
+      if (!isMentioned(msg)) return;
 
-      // Clean the mention from the text
       const cleanText = text
         .replace(new RegExp(`@${BOT_USERNAME}`, 'gi'), '')
         .trim();
 
+      // Find group admin — credits belong to them
+      const adminId = await getGroupAdmin(chatId);
+
       if (!cleanText) {
-        const credits = getCredits(String(chatId));
+        const credits = adminId ? getCredits(adminId) : { credits_remaining: 0 };
         await bot.sendMessage(chatId,
           `I'm MARK — AI marketing agent & project evaluator.\n\n` +
           `Tag me with a project idea or token and I'll evaluate it.\n` +
           `Credits remaining: ${credits.credits_remaining}\n\n` +
-          `/pay to add credits (1 SOL = 100 responses)`,
+          `Group admin can add credits: /pay`,
           { reply_to_message_id: msg.message_id }
         );
         return;
       }
 
-      // Check credits
+      // Check credits — use admin's credits, owner bypasses
       if (!isOwner(userId)) {
-        const hasCredit = useCredit(String(chatId));
+        if (!adminId) {
+          await bot.sendMessage(chatId, 'Could not verify group admin. Try again.', { reply_to_message_id: msg.message_id });
+          return;
+        }
+        const hasCredit = useCredit(adminId);
         if (!hasCredit) {
           await bot.sendMessage(chatId,
-            `No credits remaining. Send SOL to:\n\`${TREASURY}\`\n\nThen paste the Solscan link here.\n0.1 SOL = 10 credits.`,
+            `No credits remaining. Group admin needs to add credits.\n\nSend SOL to:\n\`${TREASURY}\`\n\nThen paste the Solscan link here.\n0.1 SOL = 10 credits.`,
             { parse_mode: 'Markdown', reply_to_message_id: msg.message_id }
           );
           return;
         }
       }
 
-      // Respond as project evaluator in cook group context
       const response = await chat(cleanText, {
         channel: 'cook_group',
         userId,
         username,
       });
 
-      const credits = getCredits(String(chatId));
+      const credits = adminId ? getCredits(adminId) : { credits_remaining: 0 };
       const creditInfo = isOwner(userId) ? '' : `\n\n[${credits.credits_remaining} credits remaining]`;
 
       await bot.sendMessage(chatId, response + creditInfo, {
